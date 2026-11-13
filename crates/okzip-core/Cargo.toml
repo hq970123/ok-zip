@@ -1,0 +1,29 @@
+[package]
+name = "okzip-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Platform-independent archive engine for OK Zip"
+
+[features]
+default = ["rar"]
+rar = ["dep:unrar"]
+
+[dependencies]
+zip = "9"
+sevenz-rust2 = "0.25"
+unrar = { version = "0.5", optional = true }
+tar = "0.4"
+flate2 = "1"
+bzip2 = "0.6"
+liblzma = "0.4"
+zstd = "0.14"
+thiserror = "2"
+walkdir = "2"
+filetime = "0.2"
+crc32fast = "1"
+encoding_rs = "0.8"
+time = { version = "0.3", features = ["local-offset"] }
+
+[dev-dependencies]
+tempfile = "3"
