@@ -73,7 +73,7 @@ fn roundtrip(opts: CreateOptions, file_name: &str) {
     let p = Progress::with_callback(move |_| {
         c2.fetch_add(1, Ordering::Relaxed);
     });
-    let stats = create(&[src.clone()], &archive, &opts, &p).unwrap();
+    let stats = create(std::slice::from_ref(&src), &archive, &opts, &p).unwrap();
     assert!(calls.load(Ordering::Relaxed) > 0, "progress callback fired");
     assert_eq!(stats.files, 5);
 
@@ -225,7 +225,7 @@ fn tar_family_detected_without_extension() {
     let src = make_tree(tmp.path());
     for fmt in [ArchiveFormat::TarGz, ArchiveFormat::TarXz, ArchiveFormat::TarZst, ArchiveFormat::TarBz2] {
         let a = tmp.path().join(format!("noext-{}", fmt.extension().replace('.', "-")));
-        create(&[src.clone()], &a, &CreateOptions::new(fmt), &Progress::new()).unwrap();
+        create(std::slice::from_ref(&src), &a, &CreateOptions::new(fmt), &Progress::new()).unwrap();
         assert_eq!(detect_format(&a).unwrap(), fmt);
     }
 }
@@ -329,7 +329,7 @@ fn cancellation_stops_work() {
         let a = tmp.path().join(format!("c.{}", fmt.extension()));
         let p = Progress::new();
         p.cancel();
-        let e = create(&[src.clone()], &a, &CreateOptions::new(fmt), &p).unwrap_err();
+        let e = create(std::slice::from_ref(&src), &a, &CreateOptions::new(fmt), &p).unwrap_err();
         assert!(matches!(e, Error::Cancelled), "{fmt}: {e:?}");
         assert!(!a.exists(), "{fmt}: partial archive removed");
     }
@@ -367,7 +367,7 @@ fn smart_extract_target() {
     let src = make_tree(tmp.path());
     // Archive named like its only root folder → extract into parent.
     let a = tmp.path().join("项目 data.zip");
-    create(&[src.clone()], &a, &CreateOptions::new(ArchiveFormat::Zip), &Progress::new()).unwrap();
+    create(std::slice::from_ref(&src), &a, &CreateOptions::new(ArchiveFormat::Zip), &Progress::new()).unwrap();
     let info = list(&a, &OpenOptions::default(), &Progress::new()).unwrap();
     assert_eq!(smart_extract_dir(&info, tmp.path()), tmp.path());
     // Different name → into a new sub-folder.

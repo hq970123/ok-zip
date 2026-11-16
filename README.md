@@ -15,7 +15,7 @@
 |------|:---:|:---:|------|
 | ZIP | ✅ | ✅ Deflate 0–9 级 | AES-256（默认）/ ZipCrypto；可读取两者 |
 | 7Z | ✅ | ✅ LZMA2 0–9 级、固实/非固实 | AES-256，可加密文件名 |
-| RAR（RAR4/RAR5） | ✅（UnRAR） | — | 可读取加密包 |
+| RAR（RAR 1.3–7，含 RAR4/RAR5） | ✅（纯 Rust `rars`） | — | 可读取 AES 加密文件及加密文件名（头部加密） |
 | TAR | ✅ | ✅ | — |
 | TAR.GZ / TGZ | ✅ | ✅ | — |
 | TAR.BZ2 | ✅ | ✅ | — |
@@ -23,7 +23,7 @@
 | TAR.ZST / TZST | ✅ | ✅ | — |
 | GZ / BZ2 / XZ / ZST（单文件） | ✅ | — | — |
 
-- **分卷**：可读取 `*.001/.002…` 分卷（ZIP、7Z 等）；新建 ZIP / 7Z / TAR 系列时可按大小分卷（7-Zip/Bandizip 兼容的字节切分方式）。
+- **分卷**：可读取 `*.001/.002…` 分卷（ZIP、7Z 等）以及 RAR 分卷（`x.part1.rar…` 新命名与 `x.rar/x.r00…` 旧命名，从任意一卷打开均可）；新建 ZIP / 7Z / TAR 系列时可按大小分卷（7-Zip/Bandizip 兼容的字节切分方式）。
 - **中文文件名**：非 UTF-8 的 ZIP 文件名自动按 GBK 解码。
 - **安全解压**：自动过滤 `..`、绝对路径、盘符和非法字符（防 Zip Slip）。
 - **测试压缩包**：逐项解码并校验 CRC，报告损坏文件。
@@ -99,23 +99,23 @@ cargo build -p okzip --release
 # 产物：target/release/okzip.exe
 ```
 
-- RAR 解压通过 `unrar` crate 编译 UnRAR 的 C++ 源码，需要 C++ 编译器（Windows 上为 MSVC）。不需要 RAR 时可关闭：
-  `cargo build -p okzip --no-default-features`。
-- 在 Linux 上交叉检查 Windows 界面代码：
+- RAR 解压使用纯 Rust 的 [`rars`](https://github.com/bitplane/rars) crate（Apache-2.0），不再需要 C++ 编译器，
+  也不依赖 UnRAR。RAR 默认开启（`rar` feature），不需要时可关闭：`cargo build -p okzip --no-default-features`。
+- 在 Linux 上交叉编译（可完整链接）Windows 界面：
   ```bash
   rustup target add x86_64-pc-windows-gnu
   sudo apt-get install mingw-w64
-  cargo check --target x86_64-pc-windows-gnu -p okzip
+  cargo build --target x86_64-pc-windows-gnu -p okzip
   ```
-  （MinGW 的头文件名为小写，UnRAR 引用了 `PowrProf.h`/`Wbemidl.h`，可建立同名链接后通过
-  `CXXFLAGS_x86_64_pc_windows_gnu=-I<目录>` 传入；正式构建请使用 MSVC。）
+  正式发布仍使用 MSVC 工具链（见 CI）。
+- RAR 读取测试使用 `crates/okzip-core/tests/data/rar/` 中的真实 RAR 样本（来源与许可见该目录的 `README.md`）。
 
 ### CI / 发布
 
 推送到 `main` 或推送任意 tag 时，GitHub Actions 会：
 
-1. 在 Ubuntu 上运行 `okzip-core` 全部测试；
-2. 在 `windows-latest` 上以 `x86_64-pc-windows-msvc` 构建 Release；
+1. 在 Ubuntu 上运行 `okzip-core` 全部测试（含 RAR 样本测试），并以 `x86_64-pc-windows-gnu` 交叉编译 Windows 界面做链接检查；
+2. 在 `windows-latest` 上运行 `okzip-core` 测试，并以 `x86_64-pc-windows-msvc` 构建 Release；
 3. 打包 `okzip-portable-x64.zip`（便携版）与 `okzip-setup-x64.exe`（Inno Setup 安装包，按用户安装，可选右键菜单与文件关联）；
 4. 发布 GitHub Release，标签为 `build-<运行编号>`。
 
@@ -128,11 +128,18 @@ cargo build -p okzip --release
 - [ ] 解压后自动删除压缩包、按文件夹分别压缩、自解压（SFX）
 - [ ] 代码页选择（Shift-JIS / Big5 等）与文件名预览
 - [ ] 设置持久化（默认解压位置、覆盖策略、界面主题/深色模式）
-- [ ] 更精细的进度（RAR 按字节、TAR 解压按原始大小）与多线程压缩
+- [ ] 更精细的进度（TAR 解压按原始大小）与多线程压缩
+- [ ] 新建 RAR：`rars` 已支持写入 RAR（含加密、分卷、恢复记录），后续可在 OK Zip 中开放 RAR 创建（目前 RAR 仅支持读取）
 - [ ] 7z 多卷原生写入的实时分卷（目前为写完后切分，需要额外一份磁盘空间）
 - [ ] **macOS 版**：基于 AppKit（`objc2`）的原生界面，复用 `okzip-core`；Finder 快速操作 / 服务菜单
 - [ ] 代码签名与自动更新
 
 ## 许可
 
-MIT（见 `LICENSE`）。RAR 解压使用 UnRAR 源码，受 UnRAR 许可约束（仅可用于解压，不得用于重建 RAR 压缩算法）。
+MIT（见 `LICENSE`）。
+
+第三方组件：
+
+- RAR 解压使用 [`rars`](https://github.com/bitplane/rars)（Apache License 2.0），为 RAR 格式的独立 Rust 实现，不包含 UnRAR 源码，因此不再受 UnRAR 许可限制。
+- 其余依赖（`zip`、`sevenz-rust2`、`tar`、`flate2`、`bzip2`、`liblzma`、`zstd` 等）均为 MIT / Apache-2.0 / BSD 类许可。
+- 测试样本：`ssokolow/rar-test-files`（CC0 1.0）与 `rars` 测试用例（Apache-2.0），仅用于测试，不随程序发布。

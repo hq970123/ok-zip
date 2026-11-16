@@ -410,8 +410,7 @@ fn missing_volume_is_an_error_not_a_panic() {
     let path = dir.path().join("m.part1.rar");
     let out = tmp();
     assert!(extract_pw(&path, out.path(), None).is_err());
-    match test(&path, None, &Progress::new()) {
-        Ok(r) => assert!(!r.ok()),
-        Err(_) => {}
+    if let Ok(r) = test(&path, None, &Progress::new()) {
+        assert!(!r.ok(), "a missing last volume went unnoticed");
     }
 }

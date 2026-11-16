@@ -20,6 +20,8 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
-Note: RAR extraction uses the UnRAR source code (via the `unrar` crate), which
-is under the UnRAR license: it may be used to extract RAR archives but not to
-re-create the RAR compression algorithm.
+Third-party notice: RAR extraction uses the `rars` crate
+(https://github.com/bitplane/rars), an independent Rust implementation of the
+RAR format, licensed under the Apache License, Version 2.0
+(https://www.apache.org/licenses/LICENSE-2.0). OK Zip does not include UnRAR
+source code.
