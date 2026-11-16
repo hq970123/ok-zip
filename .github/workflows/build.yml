@@ -1,0 +1,90 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ["*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  core-tests:
+    name: Core tests (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Test okzip-core
+        run: cargo test -p okzip-core --locked
+      - name: Build CLI
+        run: cargo build -p okzip-cli --release --locked
+
+  windows:
+    name: Windows build + package
+    runs-on: windows-latest
+    needs: core-tests
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build (release)
+        run: cargo build --release --locked --target x86_64-pc-windows-msvc -p okzip -p okzip-cli
+
+      - name: Test okzip-core on Windows
+        run: cargo test --release --locked -p okzip-core
+
+      - name: Stage files
+        shell: pwsh
+        run: |
+          $out = "dist/okzip"
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          Copy-Item target/x86_64-pc-windows-msvc/release/okzip.exe $out/
+          Copy-Item target/x86_64-pc-windows-msvc/release/okzip-cli.exe $out/
+          Copy-Item README.md, LICENSE $out/
+          Compress-Archive -Path "$out/*" -DestinationPath "dist/okzip-portable-x64.zip" -Force
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) {
+            choco install innosetup -y --no-progress
+          }
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          & $iscc "/DAppVersion=0.1.${{ github.run_number }}" "/DSourceDir=..\dist\okzip" installer\okzip.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: okzip-windows-x64
+          path: |
+            dist/okzip-portable-x64.zip
+            dist/okzip-setup-x64.exe
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: OK Zip build ${{ github.run_number }}
+          target_commitish: ${{ github.sha }}
+          prerelease: ${{ !startsWith(github.ref, 'refs/tags/') }}
+          body: |
+            Automated build of `${{ github.sha }}` (${{ github.ref_name }}).
+
+            - `okzip-portable-x64.zip` — portable: unzip and run `okzip.exe`
+            - `okzip-setup-x64.exe` — installer (per-user, optional Explorer context menu)
+          files: |
+            dist/okzip-portable-x64.zip
+            dist/okzip-setup-x64.exe

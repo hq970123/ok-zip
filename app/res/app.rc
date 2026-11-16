@@ -1,0 +1,133 @@
+// OK Zip resources. Control captions here are English placeholders; the app
+// replaces them at runtime from its zh-CN / en string tables.
+#include <windows.h>
+#include <commctrl.h>
+#include "resource.h"
+
+LANGUAGE LANG_NEUTRAL, SUBLANG_NEUTRAL
+
+IDI_APP ICON "okzip.ico"
+1 24 "app.manifest"
+
+VS_VERSION_INFO VERSIONINFO
+ FILEVERSION 0,1,0,0
+ PRODUCTVERSION 0,1,0,0
+ FILEFLAGSMASK 0x3fL
+ FILEFLAGS 0x0L
+ FILEOS 0x40004L
+ FILETYPE 0x1L
+ FILESUBTYPE 0x0L
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904b0"
+        BEGIN
+            VALUE "CompanyName", "OK Zip"
+            VALUE "FileDescription", "OK Zip Archiver"
+            VALUE "FileVersion", "0.1.0"
+            VALUE "InternalName", "okzip"
+            VALUE "OriginalFilename", "okzip.exe"
+            VALUE "ProductName", "OK Zip"
+            VALUE "ProductVersion", "0.1.0"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
+END
+
+IDD_EXTRACT DIALOGEX 0, 0, 320, 170
+STYLE DS_SETFONT | DS_SHELLFONT | DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Extract"
+FONT 9, "Segoe UI", 400, 0, 0x1
+BEGIN
+    LTEXT           "Destination:", IDC_X_DEST_LABEL, 7, 7, 250, 9
+    EDITTEXT        IDC_X_DEST, 7, 18, 250, 14, ES_AUTOHSCROLL
+    PUSHBUTTON      "Browse...", IDC_X_BROWSE, 262, 18, 51, 14
+    AUTOCHECKBOX    "Extract into a sub-folder", IDC_X_SUBFOLDER, 7, 38, 306, 10
+    GROUPBOX        "If a file exists", IDC_X_OW_GROUP, 7, 54, 150, 74
+    AUTORADIOBUTTON "Ask", IDC_X_OW_ASK, 14, 67, 138, 10, WS_GROUP | WS_TABSTOP
+    AUTORADIOBUTTON "Overwrite", IDC_X_OW_OVERWRITE, 14, 81, 138, 10
+    AUTORADIOBUTTON "Skip", IDC_X_OW_SKIP, 14, 95, 138, 10
+    AUTORADIOBUTTON "Rename automatically", IDC_X_OW_RENAME, 14, 109, 138, 10
+    GROUPBOX        "Options", IDC_X_OTHER_GROUP, 164, 54, 149, 74, WS_GROUP
+    AUTOCHECKBOX    "Open folder when done", IDC_X_OPEN_AFTER, 171, 67, 136, 10, WS_TABSTOP
+    LTEXT           "Password:", IDC_X_PW_LABEL, 171, 84, 136, 9
+    EDITTEXT        IDC_X_PW, 171, 95, 136, 14, ES_PASSWORD | ES_AUTOHSCROLL
+    LTEXT           "", IDC_X_SCOPE, 7, 135, 306, 9
+    DEFPUSHBUTTON   "OK", IDOK, 206, 149, 51, 14
+    PUSHBUTTON      "Cancel", IDCANCEL, 262, 149, 51, 14
+END
+
+IDD_CREATE DIALOGEX 0, 0, 330, 222
+STYLE DS_SETFONT | DS_SHELLFONT | DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "New archive"
+FONT 9, "Segoe UI", 400, 0, 0x1
+BEGIN
+    LTEXT           "Archive name:", IDC_C_PATH_LABEL, 7, 7, 260, 9
+    EDITTEXT        IDC_C_PATH, 7, 18, 260, 14, ES_AUTOHSCROLL
+    PUSHBUTTON      "Browse...", IDC_C_BROWSE, 272, 18, 51, 14
+    GROUPBOX        "Compression", IDC_C_OPTS_GROUP, 7, 38, 156, 112
+    LTEXT           "Format:", IDC_C_FMT_LABEL, 14, 53, 52, 9
+    COMBOBOX        IDC_C_FORMAT, 68, 51, 88, 150, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    LTEXT           "Level:", IDC_C_LEVEL_LABEL, 14, 73, 52, 9
+    COMBOBOX        IDC_C_LEVEL, 68, 71, 88, 150, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    LTEXT           "Split:", IDC_C_SPLIT_LABEL, 14, 93, 52, 9
+    COMBOBOX        IDC_C_SPLIT, 68, 91, 88, 150, CBS_DROPDOWN | CBS_AUTOHSCROLL | WS_VSCROLL | WS_TABSTOP
+    AUTOCHECKBOX    "Solid (7z)", IDC_C_SOLID, 14, 113, 142, 10, WS_TABSTOP
+    GROUPBOX        "Encryption", IDC_C_ENC_GROUP, 170, 38, 153, 112
+    LTEXT           "Password:", IDC_C_PW_LABEL, 177, 50, 139, 9
+    EDITTEXT        IDC_C_PW, 177, 60, 139, 14, ES_PASSWORD | ES_AUTOHSCROLL
+    LTEXT           "Confirm:", IDC_C_PW2_LABEL, 177, 77, 139, 9
+    EDITTEXT        IDC_C_PW2, 177, 87, 139, 14, ES_PASSWORD | ES_AUTOHSCROLL
+    AUTOCHECKBOX    "Show password", IDC_C_SHOWPW, 177, 105, 139, 10, WS_TABSTOP
+    LTEXT           "Method:", IDC_C_ENCMETHOD_LABEL, 177, 120, 45, 9
+    COMBOBOX        IDC_C_ENCMETHOD, 224, 118, 92, 80, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    AUTOCHECKBOX    "Encrypt file names (7z)", IDC_C_ENCNAMES, 177, 136, 139, 10, WS_TABSTOP
+    LTEXT           "", IDC_C_INFO, 7, 158, 316, 30
+    DEFPUSHBUTTON   "OK", IDOK, 216, 201, 51, 14
+    PUSHBUTTON      "Cancel", IDCANCEL, 272, 201, 51, 14
+END
+
+IDD_PASSWORD DIALOGEX 0, 0, 230, 84
+STYLE DS_SETFONT | DS_SHELLFONT | DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Password"
+FONT 9, "Segoe UI", 400, 0, 0x1
+BEGIN
+    LTEXT           "Enter password:", IDC_P_PROMPT, 7, 7, 216, 18
+    EDITTEXT        IDC_P_PW, 7, 27, 216, 14, ES_PASSWORD | ES_AUTOHSCROLL
+    AUTOCHECKBOX    "Show password", IDC_P_SHOW, 7, 46, 120, 10, WS_TABSTOP
+    DEFPUSHBUTTON   "OK", IDOK, 116, 63, 51, 14
+    PUSHBUTTON      "Cancel", IDCANCEL, 172, 63, 51, 14
+END
+
+IDD_PROGRESS DIALOGEX 0, 0, 290, 92
+STYLE DS_SETFONT | DS_SHELLFONT | DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX
+CAPTION "OK Zip"
+FONT 9, "Segoe UI", 400, 0, 0x1
+BEGIN
+    LTEXT           "Working...", IDC_G_OP, 7, 7, 276, 9
+    LTEXT           "", IDC_G_FILE, 7, 19, 276, 9, SS_PATHELLIPSIS | SS_NOPREFIX
+    CONTROL         "", IDC_G_BAR, "msctls_progress32", WS_BORDER, 7, 33, 276, 11
+    LTEXT           "", IDC_G_STATS, 7, 50, 276, 9, SS_NOPREFIX
+    PUSHBUTTON      "Cancel", IDCANCEL, 232, 71, 51, 14
+END
+
+IDD_SETTINGS DIALOGEX 0, 0, 290, 196
+STYLE DS_SETFONT | DS_SHELLFONT | DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Settings"
+FONT 9, "Segoe UI", 400, 0, 0x1
+BEGIN
+    GROUPBOX        "Explorer integration", IDC_S_SHELL_GROUP, 7, 7, 276, 66
+    LTEXT           "", IDC_S_SHELL_TEXT, 14, 19, 262, 27
+    PUSHBUTTON      "Register context menu", IDC_S_REG_MENU, 14, 51, 126, 14
+    PUSHBUTTON      "Unregister", IDC_S_UNREG_MENU, 146, 51, 126, 14
+    GROUPBOX        "File associations", IDC_S_ASSOC_GROUP, 7, 79, 276, 66
+    PUSHBUTTON      "Associate", IDC_S_ASSOC, 14, 92, 126, 14
+    PUSHBUTTON      "Remove associations", IDC_S_UNASSOC, 146, 92, 126, 14
+    PUSHBUTTON      "Open Windows default apps...", IDC_S_DEFAPPS, 14, 112, 258, 14
+    LTEXT           "", IDC_S_STATUS, 14, 130, 262, 9
+    LTEXT           "", IDC_S_MORE, 7, 152, 276, 18
+    DEFPUSHBUTTON   "Close", IDOK, 232, 175, 51, 14
+END
