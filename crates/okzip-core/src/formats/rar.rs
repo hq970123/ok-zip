@@ -121,7 +121,19 @@ impl RarSet {
     fn open(path: &Path, pw: Option<&str>) -> Result<RarSet> {
         let read = |p: &Path| -> Result<Archive> {
             rars::ArchiveReader::read_path_with_options(p, ArchiveReadOptions::with_optional_password(pw_bytes(pw)))
-                .map_err(|e| map_err(e, pw))
+                .map_err(|e| {
+                    let mapped = map_err(e, pw);
+                    // RAR 3/4 encrypted headers have no password check: a wrong
+                    // password just yields garbage headers. If the archive needs
+                    // a password at all, blame the password.
+                    if pw_bytes(pw).is_some() && matches!(mapped, Error::Corrupt(_) | Error::Other(_)) {
+                        let without = rars::ArchiveReader::read_path_with_options(p, ArchiveReadOptions::new());
+                        if without.is_err_and(|e| e.kind() == rars::ErrorKind::PasswordRequired) {
+                            return Error::WrongPassword;
+                        }
+                    }
+                    mapped
+                })
         };
         let first = read(path)?;
         let paths = volume_paths(path, is_volume(&first));
@@ -141,10 +153,33 @@ impl RarSet {
 
     fn members(&self) -> Result<Vec<ArchiveMember>> {
         if self.vols.len() == 1 {
-            Ok(self.vols[0].members().collect())
-        } else {
-            rars::volume_members(&self.vols).map_err(|e| map_err(e, None))
+            return Ok(self.vols[0].members().collect());
         }
+        // Like `rars::volume_members`, but the RAR 3/4 file CRC of a split
+        // member is only the whole-file CRC in its *last* fragment (earlier
+        // fragments carry the CRC of their own packed piece), so keep that.
+        let mut out: Vec<ArchiveMember> = Vec::new();
+        for vol in &self.vols {
+            for m in vol.members() {
+                if !m.meta.is_split_before {
+                    out.push(m);
+                    continue;
+                }
+                let Some(prev) = out.last_mut() else {
+                    return Err(Error::Corrupt("volume set starts with a continuation".into()));
+                };
+                prev.meta.packed_size = prev.meta.packed_size.saturating_add(m.meta.packed_size);
+                prev.meta.is_split_after = m.meta.is_split_after;
+                if let (
+                    ArchiveMemberDetail::Rar15To40 { crc32: dst, .. },
+                    ArchiveMemberDetail::Rar15To40 { crc32: src, .. },
+                ) = (&mut prev.detail, &m.detail)
+                {
+                    *dst = *src;
+                }
+            }
+        }
+        Ok(out)
     }
 
     fn total_size(&self) -> u64 {
