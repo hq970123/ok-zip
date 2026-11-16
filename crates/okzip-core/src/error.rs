@@ -96,17 +96,3 @@ impl From<sevenz_rust2::Error> for Error {
         }
     }
 }
-
-#[cfg(feature = "rar")]
-impl From<unrar::error::UnrarError> for Error {
-    fn from(e: unrar::error::UnrarError) -> Self {
-        use unrar::error::Code;
-        match e.code {
-            Code::MissingPassword => Error::PasswordRequired,
-            Code::BadPassword => Error::WrongPassword,
-            Code::BadData => Error::Corrupt(e.to_string()),
-            Code::BadArchive | Code::UnknownFormat => Error::Corrupt(e.to_string()),
-            _ => Error::Other(e.to_string()),
-        }
-    }
-}
