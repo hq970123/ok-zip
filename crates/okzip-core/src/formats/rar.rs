@@ -107,6 +107,9 @@ fn is_solid(a: &Archive) -> bool {
     a.as_rar50().is_some_and(|a| a.main.is_solid())
 }
 
+/// See `walk`. rars' own default is 512 MiB.
+const RAR5_BUFFERED_LIMIT: u64 = 16 * 1024 * 1024;
+
 fn pw_bytes(pw: Option<&str>) -> Option<&[u8]> {
     pw.filter(|s| !s.is_empty()).map(str::as_bytes)
 }
@@ -464,7 +467,10 @@ impl<'a> Run<'a> {
 /// without decoding, continues past broken ones when `keep_going`);
 /// multi-volume sets go through the volume API.
 fn walk(set: &RarSet, pw: Option<&str>, run: &mut Run<'_>, keep_going: bool) -> Result<()> {
-    let options = ArchiveReadOptions::with_optional_password(pw_bytes(pw));
+    // RAR5 members up to this size are decoded in memory and then written in
+    // one go; larger ones stream (bounded memory, smooth byte progress).
+    let options = ArchiveReadOptions::with_optional_password(pw_bytes(pw))
+        .with_rar50_buffered_decode_limit(RAR5_BUFFERED_LIMIT);
     let family = run.family;
     let res = if set.vols.len() == 1 {
         let failed = run.failed.clone();
