@@ -1,0 +1,2 @@
+# Test fixtures must be byte-exact on every platform (no CRLF conversion).
+crates/okzip-core/tests/data/** binary
