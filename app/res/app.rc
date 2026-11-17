@@ -207,15 +207,4 @@ BEGIN
     PUSHBUTTON      "Skip", IDC_K_SKIP, 90, 121, 78, 14
     PUSHBUTTON      "Rename", IDC_K_RENAME, 173, 121, 78, 14
     PUSHBUTTON      "Cancel", IDCANCEL, 255, 121, 78, 14
-ENDELLIPSIS
-    LTEXT           "", IDC_K_PATH, 34, 31, 259, 9, SS_NOPREFIX | SS_PATHELLIPSIS
-    GROUPBOX        "Existing file", IDC_K_OLD_GROUP, 7, 46, 140, 46
-    LTEXT           "", IDC_K_OLD, 14, 58, 128, 28, SS_NOPREFIX
-    GROUPBOX        "New file", IDC_K_NEW_GROUP, 153, 46, 140, 46
-    LTEXT           "", IDC_K_NEW, 160, 58, 128, 28, SS_NOPREFIX
-    AUTOCHECKBOX    "Apply to all", IDC_K_ALL, 7, 100, 286, 10, WS_TABSTOP
-    DEFPUSHBUTTON   "Overwrite", IDC_K_OVERWRITE, 7, 121, 68, 14
-    PUSHBUTTON      "Skip", IDC_K_SKIP, 79, 121, 68, 14
-    PUSHBUTTON      "Rename", IDC_K_RENAME, 151, 121, 68, 14
-    PUSHBUTTON      "Cancel", IDCANCEL, 225, 121, 68, 14
 END
