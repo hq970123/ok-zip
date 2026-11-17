@@ -184,7 +184,7 @@ strings! {
     STabGeneral => "常规", "General";
     STabExtract => "解压", "Extract";
     STabCompress => "压缩", "Compress";
-    STabShell => "右键菜单与关联", "Context menu & associations";
+    STabShell => "右键菜单与关联", "Context menu && associations";
     SUiGroup => "界面", "Interface";
     SLang => "界面语言：", "Language:";
     SLangAuto => "自动（跟随系统）", "Automatic (follow Windows)";

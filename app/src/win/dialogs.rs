@@ -706,6 +706,9 @@ unsafe extern "system" fn sheet_callback(hwnd: HWND, msg: u32, _lp: LPARAM) -> i
             1
         }
         unsafe { EnumChildWindows(hwnd, Some(apply), font as LPARAM) };
+        // comctl32 labels these in the *Windows* language; use ours.
+        set_dlg_text(hwnd, IDOK, tr(S::SOk));
+        set_dlg_text(hwnd, IDCANCEL, tr(S::GCancel));
     }
     0
 }
@@ -790,7 +793,9 @@ struct KState<'a> {
 }
 
 fn describe(size: Option<u64>, time: Option<i64>, newer: bool) -> String {
-    let size = size.map(|n| format!("{} ({} B)", okzip_core::format_size(n), group_digits(n))).unwrap_or_else(|| tr(S::KUnknown).into());
+    let size = size
+        .map(|n| if n < 1024 { format!("{n} B") } else { format!("{} ({} B)", okzip_core::format_size(n), group_digits(n)) })
+        .unwrap_or_else(|| tr(S::KUnknown).into());
     let mut time = if time.is_some() { format_time_ex(time, true) } else { tr(S::KUnknown).into() };
     if newer {
         time.push_str(tr(S::KNewer));

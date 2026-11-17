@@ -53,6 +53,72 @@ public static class W {
   }
 }
 "@
+Add-Type @"
+using System;
+using System.Text;
+using System.Runtime.InteropServices;
+[ComImport, Guid("000214E6-0000-0000-C000-000000000046"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+public interface IShellFolderX {
+  void ParseDisplayName(); void EnumObjects(); void BindToObject(); void BindToStorage(); void CompareIDs();
+  void CreateViewObject(); void GetAttributesOf();
+  [PreserveSig] int GetUIObjectOf(IntPtr hwnd, uint cidl, [MarshalAs(UnmanagedType.LPArray)] IntPtr[] apidl, ref Guid riid, IntPtr reserved, out IntPtr ppv);
+}
+[ComImport, Guid("BCFCE0A0-EC17-11D0-8D10-00A0C90F2719"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+public interface IContextMenu3X {
+  [PreserveSig] int QueryContextMenu(IntPtr hmenu, uint index, uint first, uint last, uint flags);
+  void InvokeCommand(); void GetCommandString();
+  [PreserveSig] int HandleMenuMsg(uint msg, IntPtr w, IntPtr l);
+  [PreserveSig] int HandleMenuMsg2(uint msg, IntPtr w, IntPtr l, out IntPtr result);
+}
+public static class CtxMenu {
+  [DllImport("shell32.dll", CharSet=CharSet.Unicode)] static extern int SHParseDisplayName(string name, IntPtr bc, out IntPtr pidl, uint sfgao, out uint attrs);
+  [DllImport("shell32.dll")] static extern int SHBindToParent(IntPtr pidl, ref Guid riid, out IntPtr ppv, out IntPtr last);
+  [DllImport("user32.dll")] static extern IntPtr CreatePopupMenu();
+  [DllImport("user32.dll")] static extern bool DestroyMenu(IntPtr m);
+  [DllImport("user32.dll")] static extern int GetMenuItemCount(IntPtr m);
+  [DllImport("user32.dll")] static extern IntPtr GetSubMenu(IntPtr m, int pos);
+  [DllImport("user32.dll", CharSet=CharSet.Unicode)] static extern int GetMenuStringW(IntPtr m, uint item, StringBuilder s, int max, uint flags);
+  [DllImport("user32.dll")] static extern uint GetMenuState(IntPtr m, uint item, uint flags);
+  static IContextMenu3X cm;
+  static void Walk(IntPtr m, int depth, StringBuilder o) {
+    int n = GetMenuItemCount(m);
+    for (int i = 0; i < n; i++) {
+      var sb = new StringBuilder(260);
+      GetMenuStringW(m, (uint)i, sb, 260, 0x400);
+      uint st = GetMenuState(m, (uint)i, 0x400);
+      if ((st & 0x800) != 0) continue; // separator
+      IntPtr sub = GetSubMenu(m, i);
+      o.Append(new string(' ', depth * 4)).Append(sb.ToString().Replace("&", "")).Append(sub != IntPtr.Zero ? "  >" : "").Append("\n");
+      if (sub != IntPtr.Zero && depth < 2) {
+        IntPtr r;
+        try { cm.HandleMenuMsg2(0x0117 /*WM_INITMENUPOPUP*/, sub, (IntPtr)i, out r); } catch {}
+        Walk(sub, depth + 1, o);
+      }
+    }
+  }
+  public static string Dump(string path) {
+    IntPtr pidl; uint a;
+    int hr = SHParseDisplayName(path, IntPtr.Zero, out pidl, 0, out a);
+    if (hr != 0) return "SHParseDisplayName failed " + hr;
+    Guid iidSf = new Guid("000214E6-0000-0000-C000-000000000046");
+    IntPtr psf, last;
+    hr = SHBindToParent(pidl, ref iidSf, out psf, out last);
+    if (hr != 0) return "SHBindToParent failed " + hr;
+    var sf = (IShellFolderX)Marshal.GetObjectForIUnknown(psf);
+    Guid iidCm = new Guid("000214E4-0000-0000-C000-000000000046");
+    IntPtr pcm;
+    hr = sf.GetUIObjectOf(IntPtr.Zero, 1, new IntPtr[] { last }, ref iidCm, IntPtr.Zero, out pcm);
+    if (hr != 0) return "GetUIObjectOf failed " + hr;
+    cm = (IContextMenu3X)Marshal.GetObjectForIUnknown(pcm);
+    IntPtr menu = CreatePopupMenu();
+    hr = cm.QueryContextMenu(menu, 0, 1, 0x7FFF, 0);
+    var o = new StringBuilder();
+    Walk(menu, 0, o);
+    DestroyMenu(menu);
+    return o.ToString();
+  }
+}
+"@
 [W]::SetProcessDPIAware() | Out-Null
 
 try { Set-DisplayResolution -Width 1920 -Height 1080 -Force -ErrorAction Stop; Write-Host "Resolution set to 1920x1080" }
@@ -263,15 +329,16 @@ try {
     $v = Get-ItemProperty -LiteralPath $k
     Write-Host "$k : $(($v.PSObject.Properties | Where-Object { $_.Name -notlike 'PS*' } | ForEach-Object { "$($_.Name)=$($_.Value)" }) -join ' | ')"
   }
-  try {
-    $shell = New-Object -ComObject Shell.Application
-    foreach ($f in @($xzip, (Join-Path $src "说明.txt"))) {
-      $item = $shell.NameSpace((Split-Path $f)).ParseName((Split-Path $f -Leaf))
-      $names = @($item.Verbs() | ForEach-Object { $_.Name })
-      $ok = @($names | Where-Object { $_ -match "OK Zip" }).Count
-      Write-Host "context menu of $(Split-Path $f -Leaf): 'OK Zip' entries = $ok; verbs = $($names -join ' | ')"
-    }
-  } catch { Write-Warning "Shell.Application verb listing failed: $($_.Exception.Message)" }
+  # Build the real Explorer context menu (IContextMenu, classic menu) and
+  # dump it including submenus, to check the cascading "OK Zip" entry.
+  foreach ($f in @($xzip, (Join-Path $src "说明.txt"), (Join-Path $src "文档"))) {
+    try {
+      $dump = [CtxMenu]::Dump($f)
+      Write-Host "context menu of $(Split-Path $f -Leaf):`n$dump"
+      $n = ([regex]::Matches($dump, "(?m)^OK Zip")).Count
+      if ($n -ne 1) { Write-Warning "expected exactly one top-level 'OK Zip' entry for $(Split-Path $f -Leaf), found $n" }
+    } catch { Write-Warning "context menu dump failed for ${f}: $($_.Exception.Message)" }
+  }
   $p = Start-Process -FilePath $exe -ArgumentList "--unregister-shell" -PassThru -Wait
   if (Test-Path -LiteralPath "HKCU:\Software\Classes\Directory\shell\OKZip") { throw "SMOKE TEST FAILED: --unregister-shell left keys behind" }
 
