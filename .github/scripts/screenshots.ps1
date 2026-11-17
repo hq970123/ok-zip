@@ -213,7 +213,8 @@ $BM_SETCHECK = 0x00F1
 function CloseDialog([IntPtr]$h) { [W]::PostMessageW($h, $WM_COMMAND, [IntPtr]2, [IntPtr]::Zero) | Out-Null; Start-Sleep -Milliseconds 800 }
 function Launch([string[]]$argv, [string]$lang) {
   $env:OKZIP_LANG = $lang
-  $p = Start-Process -FilePath $exe -ArgumentList $argv -PassThru -WorkingDirectory $work
+  if ($argv.Count -gt 0) { $p = Start-Process -FilePath $exe -ArgumentList $argv -PassThru -WorkingDirectory $work }
+  else { $p = Start-Process -FilePath $exe -PassThru -WorkingDirectory $work }
   Start-Sleep -Seconds 3
   if ($p.HasExited) { throw "SMOKE TEST FAILED: okzip.exe $($argv -join ' ') exited after launch with code $($p.ExitCode)" }
   return $p
@@ -267,6 +268,14 @@ try {
   if (-not $json.window) { throw "SMOKE TEST FAILED: window placement was not saved" }
   if ($json.column_widths.Count -ne 7) { throw "SMOKE TEST FAILED: expected 7 saved column widths, got $($json.column_widths.Count)" }
   if (-not ($json.recent -contains $zip)) { throw "SMOKE TEST FAILED: recent list does not contain the sample" }
+
+  # 1b) start page (no archive open)
+  $p = Launch @() "zh"; $procs += $p
+  $main = WaitWindow $p { param($h) [W]::Cls($h) -eq "OKZipMainWindow" }
+  Start-Sleep -Seconds 2
+  Shot $main "00b-home-zh"
+  [W]::PostMessageW($main, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
+  WaitExit $p 15 | Out-Null
 
   # 2) create dialog: `okzip.exe a <folder>` opens it directly
   $p = Launch @("a", "`"$src`"") "zh"; $procs += $p

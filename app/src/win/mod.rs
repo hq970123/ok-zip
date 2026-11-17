@@ -17,15 +17,18 @@
 //!                                     silent Explorer integration (used by the installer)
 //! ```
 
+mod band;
 mod dialogs;
 mod dragout;
 mod gather;
 mod i18n;
+mod icons_gen;
 mod ids;
 mod mainwnd;
 mod progress;
 mod registry;
 mod settings;
+mod theme;
 mod util;
 
 use i18n::{tr, trf, S};

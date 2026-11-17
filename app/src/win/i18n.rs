@@ -89,6 +89,10 @@ strings! {
     TbDelete => "删除", "Delete";
     TbTest => "测试", "Test";
     TbView => "查看", "View";
+    TbSettings => "设置", "Settings";
+    HomeOpen => "打开压缩文件", "Open archive";
+    HomeNew => "新建压缩文件", "New archive";
+    HomeHint => "也可以把压缩文件或要压缩的文件拖到这里", "Or drop an archive, or files to compress, here";
 
     ColName => "名称", "Name";
     ColPacked => "压缩后大小", "Packed";

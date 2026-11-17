@@ -1,6 +1,8 @@
 //! The Bandizip-style main window: menu bar, big-button toolbar, folder tree,
 //! virtual report list view with shell icons, status bar, splitter, drag & drop.
 
+use super::band::{self, Btn, WM_BAND_DROPDOWN};
+use super::theme;
 use super::dialogs::{create_dialog, extract_dialog, settings_dialog};
 use super::dragout;
 use super::settings::{self, ExtractTarget};
@@ -151,7 +153,10 @@ pub struct App {
     sort: Cell<(i32, bool)>,
     temp_root: PathBuf,
     temp_counter: Cell<u32>,
-    toolbar_images: Cell<HIMAGELIST>,
+    row_images: Cell<HIMAGELIST>,
+    home_hot: Cell<i32>,
+    home_tracking: Cell<bool>,
+    was_home: Cell<bool>,
     recent_menu: Cell<HMENU>,
 }
 
@@ -180,7 +185,7 @@ pub fn create_main_window(initial: Option<PathBuf>) -> HWND {
             hInstance: hinst,
             hIcon: LoadImageW(hinst, make_int_resource(IDI_APP), IMAGE_ICON, big, big, LR_DEFAULTCOLOR) as HICON,
             hCursor: LoadCursorW(null_mut(), IDC_ARROW),
-            hbrBackground: GetSysColorBrush(COLOR_BTNFACE),
+            hbrBackground: null_mut(),
             lpszMenuName: null(),
             lpszClassName: class.as_ptr(),
             hIconSm: LoadImageW(hinst, make_int_resource(IDI_APP), IMAGE_ICON, small, small, LR_DEFAULTCOLOR) as HICON,
@@ -207,7 +212,10 @@ pub fn create_main_window(initial: Option<PathBuf>) -> HWND {
             sort: Cell::new((0, true)),
             temp_root: std::env::temp_dir().join(format!("OKZip-{}", std::process::id())),
             temp_counter: Cell::new(0),
-            toolbar_images: Cell::new(0),
+            row_images: Cell::new(0),
+            home_hot: Cell::new(-1),
+            home_tracking: Cell::new(false),
+            was_home: Cell::new(true),
             recent_menu: Cell::new(null_mut()),
         }));
         APP.with(|a| a.set(Some(state)));
@@ -277,32 +285,29 @@ impl App {
             self.rebuild_recent_menu();
             SetMenu(hwnd, self.menu.get());
 
-            // Toolbar
-            let tb = CreateWindowExW(
-                0,
-                TOOLBARCLASSNAMEW,
-                null(),
-                WS_CHILD | WS_VISIBLE | TBSTYLE_FLAT | TBSTYLE_TOOLTIPS | CCS_TOP as u32 | CCS_NODIVIDER as u32,
-                0,
-                0,
-                0,
-                0,
+            // Command band (Bandizip-style blue strip with Lucide icons)
+            let b = |cmd, icon, label, dropdown, right| Btn { cmd, icon, label, dropdown, right };
+            let tb = band::create(
                 hwnd,
-                null_mut(),
-                hinst,
-                null(),
+                vec![
+                    b(ID_OPEN, "open", S::TbOpen, true, false),
+                    b(ID_EXTRACT_DEFAULT, "extract", S::TbExtract, true, false),
+                    b(ID_NEW, "new", S::TbNew, false, false),
+                    b(ID_ADD, "add", S::TbAdd, false, false),
+                    b(ID_DELETE, "delete", S::TbDelete, false, false),
+                    b(ID_TEST, "test", S::TbTest, false, false),
+                    b(ID_VIEW, "view", S::TbView, false, false),
+                    b(ID_SETTINGS, "settings", S::TbSettings, false, true),
+                ],
             );
             self.toolbar.set(tb);
-            SendMessageW(tb, TB_BUTTONSTRUCTSIZE, std::mem::size_of::<TBBUTTON>(), 0);
-            SendMessageW(tb, TB_SETEXTENDEDSTYLE, 0, TBSTYLE_EX_DOUBLEBUFFER as isize);
-            self.build_toolbar();
 
             // Tree
             let tree = CreateWindowExW(
-                WS_EX_CLIENTEDGE,
+                0,
                 WC_TREEVIEWW,
                 null(),
-                WS_CHILD | WS_VISIBLE | WS_TABSTOP | TVS_HASBUTTONS | TVS_HASLINES | TVS_LINESATROOT | TVS_SHOWSELALWAYS,
+                WS_CHILD | WS_VISIBLE | WS_TABSTOP | TVS_HASBUTTONS | TVS_LINESATROOT | TVS_SHOWSELALWAYS | TVS_FULLROWSELECT | TVS_TRACKSELECT,
                 0,
                 0,
                 0,
@@ -320,7 +325,7 @@ impl App {
 
             // List
             let list = CreateWindowExW(
-                WS_EX_CLIENTEDGE,
+                0,
                 WC_LISTVIEWW,
                 null(),
                 WS_CHILD | WS_VISIBLE | WS_TABSTOP | LVS_REPORT | LVS_OWNERDATA | LVS_SHOWSELALWAYS | LVS_SHAREIMAGELISTS,
@@ -355,8 +360,21 @@ impl App {
         let old = self.font.get();
         let f = create_ui_font(self.dpi.get());
         self.font.set(f);
-        for h in [self.toolbar.get(), self.tree.get(), self.list.get(), self.status.get()] {
+        for h in [self.tree.get(), self.list.get(), self.status.get()] {
             set_font(h, f);
+        }
+        band::set_font(self.toolbar.get(), f, self.dpi.get());
+        unsafe {
+            // Taller, Bandizip-like rows: the list's row height follows the
+            // tallest image list, so give it an invisible 1-px state list.
+            let tree = self.tree.get();
+            SendMessageW(tree, TVM_SETITEMHEIGHT, scale(24, self.dpi.get()) as usize, 0);
+            let il = ImageList_Create(1, scale(24, self.dpi.get()), ILC_COLOR32, 1, 0);
+            SendMessageW(self.list.get(), LVM_SETIMAGELIST, LVSIL_STATE as usize, il as isize);
+            let old = self.row_images.replace(il);
+            if old != 0 {
+                ImageList_Destroy(old);
+            }
         }
         if !old.is_null() {
             unsafe { DeleteObject(old as HGDIOBJ) };
@@ -364,54 +382,7 @@ impl App {
     }
 
     fn build_toolbar(&self) {
-        unsafe {
-            let tb = self.toolbar.get();
-            let size = scale(32, self.dpi.get()).clamp(32, 64);
-            let old = self.toolbar_images.get();
-            let il = ImageList_Create(size, size, ILC_COLOR32 | ILC_MASK, 8, 0);
-            // Our own icon set (app/res/tb/*.ico, 16-64 px each): one distinct,
-            // consistently drawn glyph per command.
-            let icons = [IDI_TB_OPEN, IDI_TB_EXTRACT, IDI_TB_NEW, IDI_TB_ADD, IDI_TB_DELETE, IDI_TB_TEST, IDI_TB_VIEW];
-            for id in icons {
-                let h = LoadImageW(hinstance(), make_int_resource(id), IMAGE_ICON, size, size, LR_DEFAULTCOLOR) as HICON;
-                if !h.is_null() {
-                    ImageList_ReplaceIcon(il, -1, h);
-                    DestroyIcon(h);
-                } else {
-                    ImageList_ReplaceIcon(il, -1, LoadIconW(null_mut(), IDI_APPLICATION));
-                }
-            }
-            SendMessageW(tb, TB_SETIMAGELIST, 0, il as isize);
-            self.toolbar_images.set(il);
-            if old != 0 {
-                ImageList_Destroy(old);
-            }
-            // Remove existing buttons (DPI rebuild)
-            while SendMessageW(tb, TB_DELETEBUTTON, 0, 0) != 0 {}
-            let labels = [S::TbOpen, S::TbExtract, S::TbNew, S::TbAdd, S::TbDelete, S::TbTest, S::TbView];
-            let cmds = [ID_OPEN, ID_EXTRACT_DEFAULT, ID_NEW, ID_ADD, ID_DELETE, ID_TEST, ID_VIEW];
-            let mut buttons: Vec<TBBUTTON> = Vec::new();
-            for (i, (label, cmd)) in labels.iter().zip(cmds).enumerate() {
-                let mut s: Vec<u16> = tr(*label).encode_utf16().collect();
-                s.extend([0, 0]);
-                let idx = SendMessageW(tb, TB_ADDSTRINGW, 0, s.as_ptr() as isize);
-                let mut b: TBBUTTON = std::mem::zeroed();
-                b.iBitmap = i as i32;
-                b.idCommand = cmd;
-                b.fsState = TBSTATE_ENABLED as u8;
-                b.fsStyle = (BTNS_BUTTON | BTNS_AUTOSIZE) as u8;
-                b.iString = idx;
-                buttons.push(b);
-                if cmd == ID_NEW || cmd == ID_DELETE {
-                    let mut sep: TBBUTTON = std::mem::zeroed();
-                    sep.fsStyle = BTNS_SEP as u8;
-                    sep.iBitmap = scale(8, self.dpi.get());
-                    buttons.push(sep);
-                }
-            }
-            SendMessageW(tb, TB_ADDBUTTONSW, buttons.len(), buttons.as_ptr() as isize);
-            SendMessageW(tb, TB_AUTOSIZE, 0, 0);
-        }
+        band::set_font(self.toolbar.get(), self.font.get(), self.dpi.get());
     }
 
     fn add_columns(&self) {
@@ -479,21 +450,25 @@ impl App {
             let mut rc: RECT = std::mem::zeroed();
             GetClientRect(hwnd, &mut rc);
             let tb = self.toolbar.get();
-            SendMessageW(tb, TB_AUTOSIZE, 0, 0);
-            let mut trc: RECT = std::mem::zeroed();
-            GetWindowRect(tb, &mut trc);
-            let top = trc.bottom - trc.top;
+            let home = self.is_home();
+            let dpi = self.dpi.get();
+            let top = if home { 0 } else { band::height(dpi) };
+            MoveWindow(tb, 0, 0, rc.right, top, 1);
+            ShowWindow(tb, if home { SW_HIDE } else { SW_SHOW });
             let st = self.status.get();
             SendMessageW(st, WM_SIZE, 0, 0);
             let mut src: RECT = std::mem::zeroed();
             GetWindowRect(st, &mut src);
             let sh = src.bottom - src.top;
-            let dpi = self.dpi.get();
             let parts = [scale(300, dpi), scale(560, dpi), scale(700, dpi), -1];
             SendMessageW(st, SB_SETPARTS, parts.len(), parts.as_ptr() as isize);
             let w = rc.right;
             let h = (rc.bottom - top - sh).max(0);
-            if self.show_tree.get() {
+            if home {
+                ShowWindow(self.tree.get(), SW_HIDE);
+                ShowWindow(self.list.get(), SW_HIDE);
+            } else if self.show_tree.get() {
+                ShowWindow(self.list.get(), SW_SHOW);
                 let sx = scale(self.split.get(), dpi).clamp(scale(80, dpi), (w - scale(160, dpi)).max(scale(80, dpi)));
                 let gap = scale(SPLIT_GAP, dpi);
                 ShowWindow(self.tree.get(), SW_SHOW);
@@ -501,6 +476,7 @@ impl App {
                 MoveWindow(self.list.get(), sx + gap, top, (w - sx - gap).max(0), h, 1);
             } else {
                 ShowWindow(self.tree.get(), SW_HIDE);
+                ShowWindow(self.list.get(), SW_SHOW);
                 MoveWindow(self.list.get(), 0, top, w, h, 1);
             }
         }
@@ -516,9 +492,14 @@ impl App {
         let tb = self.toolbar.get();
         let menu = self.menu.get();
         let set = |cmd: i32, on: bool| unsafe {
-            SendMessageW(tb, TB_ENABLEBUTTON, cmd as usize, on as isize);
+            band::enable(tb, cmd, on);
             EnableMenuItem(menu, cmd as u32, MF_BYCOMMAND | if on { MF_ENABLED } else { MF_GRAYED });
         };
+        let home = !has;
+        if self.was_home.replace(home) != home {
+            self.layout();
+            unsafe { InvalidateRect(self.hwnd.get(), null(), 1) };
+        }
         set(ID_ADD, writable);
         set(ID_ADD_FOLDER, writable);
         set(ID_DELETE, writable);
@@ -532,6 +513,8 @@ impl App {
         set(ID_SELECT_ALL, has);
         set(ID_REFRESH, has);
         set(ID_UP, has);
+        set(ID_EXTRACT, has);
+        set(ID_EXTRACT_DEFAULT, has);
         unsafe {
             CheckMenuItem(menu, ID_TOGGLE_TREE as u32, MF_BYCOMMAND | if self.show_tree.get() { MF_CHECKED } else { MF_UNCHECKED });
         }
@@ -1415,6 +1398,115 @@ impl App {
         }
     }
 
+
+    // ------------------------------------------------------------ start page & painting
+
+    fn is_home(&self) -> bool {
+        self.model.borrow().is_none()
+    }
+
+    /// Client area above the status bar.
+    fn content_rect(&self) -> RECT {
+        unsafe {
+            let mut rc: RECT = std::mem::zeroed();
+            GetClientRect(self.hwnd.get(), &mut rc);
+            let mut src: RECT = std::mem::zeroed();
+            GetWindowRect(self.status.get(), &mut src);
+            rc.bottom = (rc.bottom - (src.bottom - src.top)).max(0);
+            rc
+        }
+    }
+
+    /// The two start-page tiles: 打开压缩文件, 新建压缩文件.
+    fn home_tiles(&self) -> [RECT; 2] {
+        let dpi = self.dpi.get();
+        let rc = self.content_rect();
+        let (w, h, gap) = (scale(168, dpi), scale(140, dpi), scale(6, dpi));
+        let left = (rc.right - (2 * w + gap)) / 2;
+        let top = rc.top + ((rc.bottom - rc.top) - h) * 9 / 20;
+        let r0 = RECT { left, top, right: left + w, bottom: top + h };
+        let r1 = RECT { left: left + w + gap, top, right: left + 2 * w + gap, bottom: top + h };
+        [r0, r1]
+    }
+
+    fn home_hit(&self, x: i32, y: i32) -> i32 {
+        self.home_tiles().iter().position(|r| x >= r.left && x < r.right && y >= r.top && y < r.bottom).map(|i| i as i32).unwrap_or(-1)
+    }
+
+    fn splitter_hit(&self, x: i32, y: i32) -> bool {
+        if self.is_home() || !self.show_tree.get() {
+            return false;
+        }
+        let dpi = self.dpi.get();
+        let mut rc: RECT = unsafe { std::mem::zeroed() };
+        unsafe { GetWindowRect(self.tree.get(), &mut rc) };
+        let mut pt = POINT { x: rc.right, y: rc.top };
+        unsafe { ScreenToClient(self.hwnd.get(), &mut pt) };
+        x >= pt.x - 1 && x <= pt.x + scale(SPLIT_GAP, dpi) && y >= pt.y
+    }
+
+    fn paint(&self, hdc: HDC) {
+        let dpi = self.dpi.get();
+        let mut rc: RECT = unsafe { std::mem::zeroed() };
+        unsafe { GetClientRect(self.hwnd.get(), &mut rc) };
+        let buf = theme::Buffered::new(hdc, rc.right, rc.bottom);
+        let dc = buf.dc;
+        if !self.is_home() {
+            // Only the splitter gap is visible between the child windows.
+            theme::fill(dc, &rc, theme::SPLITTER);
+            return;
+        }
+        let content = self.content_rect();
+        theme::gradient_v(dc, &content, theme::HOME_TOP, theme::HOME_BOTTOM);
+        let font = self.font.get();
+        let labels = [(S::HomeOpen, "home_open"), (S::HomeNew, "home_new")];
+        let icon = scale(44, dpi);
+        for (i, r) in self.home_tiles().iter().enumerate() {
+            let hot = self.home_hot.get() == i as i32;
+            theme::fill(dc, r, if hot { theme::TILE_HOT } else { theme::WHITE });
+            theme::frame(dc, r, theme::TILE_BORDER);
+            let (label, name) = labels[i];
+            let iy = r.top + scale(30, dpi);
+            theme::draw_icon(dc, name, r.left + (r.right - r.left - icon) / 2, iy, icon, theme::TILE_ICON, 255);
+            let tr_ = RECT { left: r.left, top: iy + icon + scale(16, dpi), right: r.right, bottom: r.bottom };
+            theme::text(dc, tr(label), &tr_, font, theme::TILE_TEXT, DT_CENTER | DT_TOP | DT_SINGLELINE | DT_NOPREFIX);
+        }
+        let tiles = self.home_tiles();
+        let hint = RECT { left: content.left, top: tiles[0].bottom + scale(22, dpi), right: content.right, bottom: content.bottom };
+        theme::text(dc, tr(S::HomeHint), &hint, font, theme::HINT_TEXT, DT_CENTER | DT_TOP | DT_SINGLELINE | DT_NOPREFIX);
+    }
+
+    fn set_home_hot(&self, i: i32) {
+        if self.home_hot.replace(i) != i {
+            let tiles = self.home_tiles();
+            unsafe {
+                for r in &tiles {
+                    InvalidateRect(self.hwnd.get(), r, 0);
+                }
+            }
+        }
+    }
+
+    /// Drop-down part of a band split button.
+    fn band_dropdown(&self, cmd: i32, at: &RECT) {
+        unsafe {
+            let (menu, owned) = if cmd == ID_OPEN {
+                (self.recent_menu.get(), false)
+            } else {
+                let m = CreatePopupMenu();
+                for (id, s) in [(ID_EXTRACT, S::MiExtract), (ID_EXTRACT_HERE, S::MiExtractHere), (ID_EXTRACT_SMART, S::MiExtractSmart)] {
+                    let w = wide(tr(s));
+                    AppendMenuW(m, MF_STRING, id as usize, w.as_ptr());
+                }
+                (m, true)
+            };
+            TrackPopupMenu(menu, TPM_LEFTALIGN | TPM_TOPALIGN | TPM_LEFTBUTTON, at.left, at.bottom, 0, self.hwnd.get(), null());
+            if owned {
+                DestroyMenu(menu);
+            }
+        }
+    }
+
     fn on_destroy(&self) {
         self.save_window_state();
         let _ = std::fs::remove_dir_all(&self.temp_root);
@@ -1555,6 +1647,10 @@ fn x_from_lparam(lp: LPARAM) -> i32 {
     (lp & 0xFFFF) as i16 as i32
 }
 
+fn y_from_lparam(lp: LPARAM) -> i32 {
+    ((lp >> 16) & 0xFFFF) as i16 as i32
+}
+
 unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
     unsafe {
         let Some(app) = app() else { return DefWindowProcW(hwnd, msg, wp, lp) };
@@ -1565,6 +1661,7 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM)
             }
             WM_SIZE => {
                 app.layout();
+                InvalidateRect(hwnd, null(), 0);
                 0
             }
             WM_GETMINMAXINFO => {
@@ -1594,15 +1691,37 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM)
                 app.on_drop(files);
                 0
             }
+            WM_ERASEBKGND => 1,
+            WM_PAINT => {
+                let mut ps: PAINTSTRUCT = std::mem::zeroed();
+                let hdc = BeginPaint(hwnd, &mut ps);
+                app.paint(hdc);
+                EndPaint(hwnd, &ps);
+                0
+            }
+            WM_BAND_DROPDOWN => {
+                app.band_dropdown(wp as i32, &*(lp as *const RECT));
+                0
+            }
             WM_SETCURSOR => {
-                if wp as HWND == hwnd && loword(lp as usize) == HTCLIENT && app.show_tree.get() {
-                    SetCursor(LoadCursorW(null_mut(), IDC_SIZEWE));
-                    return 1;
+                if wp as HWND == hwnd && loword(lp as usize) == HTCLIENT {
+                    let mut pt: POINT = std::mem::zeroed();
+                    GetCursorPos(&mut pt);
+                    ScreenToClient(hwnd, &mut pt);
+                    if app.splitter_hit(pt.x, pt.y) {
+                        SetCursor(LoadCursorW(null_mut(), IDC_SIZEWE));
+                        return 1;
+                    }
+                    if app.is_home() && app.home_hit(pt.x, pt.y) >= 0 {
+                        SetCursor(LoadCursorW(null_mut(), IDC_HAND));
+                        return 1;
+                    }
                 }
                 DefWindowProcW(hwnd, msg, wp, lp)
             }
             WM_LBUTTONDOWN => {
-                if app.show_tree.get() {
+                let (x, y) = (x_from_lparam(lp), y_from_lparam(lp));
+                if app.splitter_hit(x, y) {
                     app.dragging.set(true);
                     SetCapture(hwnd);
                 }
@@ -1613,13 +1732,31 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM)
                     let x = x_from_lparam(lp).max(0);
                     app.split.set((x as i64 * 96 / app.dpi.get() as i64) as i32);
                     app.layout();
+                } else if app.is_home() {
+                    if !app.home_tracking.get() {
+                        let mut t = TRACKMOUSEEVENT { cbSize: std::mem::size_of::<TRACKMOUSEEVENT>() as u32, dwFlags: TME_LEAVE, hwndTrack: hwnd, dwHoverTime: 0 };
+                        TrackMouseEvent(&mut t);
+                        app.home_tracking.set(true);
+                    }
+                    app.set_home_hot(app.home_hit(x_from_lparam(lp), y_from_lparam(lp)));
                 }
+                0
+            }
+            WM_MOUSELEAVE => {
+                app.home_tracking.set(false);
+                app.set_home_hot(-1);
                 0
             }
             WM_LBUTTONUP => {
                 if app.dragging.get() {
                     app.dragging.set(false);
                     ReleaseCapture();
+                } else if app.is_home() {
+                    match app.home_hit(x_from_lparam(lp), y_from_lparam(lp)) {
+                        0 => app.on_command(ID_OPEN),
+                        1 => app.on_command(ID_NEW),
+                        _ => {}
+                    }
                 }
                 0
             }
