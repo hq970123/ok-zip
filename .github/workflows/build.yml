@@ -69,7 +69,7 @@ jobs:
         shell: pwsh
         run: |
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
-          & $iscc "/DAppVersion=0.1.${{ github.run_number }}" "/DSourceDir=..\dist\okzip" installer\okzip.iss
+          & $iscc "/DAppVersion=0.2.${{ github.run_number }}" "/DSourceDir=..\dist\okzip" installer\okzip.iss
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - uses: actions/upload-artifact@v4
@@ -90,7 +90,7 @@ jobs:
             Automated build of `${{ github.sha }}` (${{ github.ref_name }}).
 
             - `okzip-portable-x64.zip` — portable: unzip and run `okzip.exe`
-            - `okzip-setup-x64.exe` — installer (per-user, optional Explorer context menu)
+            - `okzip-setup-x64.exe` — installer (English / 简体中文; per-user; optional Explorer "OK Zip" submenu and file associations)
           files: |
             dist/okzip-portable-x64.zip
             dist/okzip-setup-x64.exe

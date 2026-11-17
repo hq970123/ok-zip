@@ -1,6 +1,9 @@
 # GUI smoke test: launch okzip.exe on a sample archive, open the main dialogs
 # by posting WM_COMMAND with the menu IDs from app/src/win/ids.rs, and save
 # PNG screenshots (screen copy + PrintWindow of the HWND) to $Out.
+# Also: every settings tab, the overwrite-conflict dialog (extracting the
+# sample twice into one folder with policy 询问), settings persistence, the
+# Explorer context-menu registration and the multi-select "--gather" compress.
 param(
   [string]$Bin = "target/x86_64-pc-windows-msvc/release",
   [string]$Out = "shots"
@@ -32,6 +35,7 @@ public static class W {
   [DllImport("user32.dll")] public static extern IntPtr SendMessageW(IntPtr h, uint m, IntPtr w, IntPtr l);
   [DllImport("user32.dll")] public static extern bool PostMessageW(IntPtr h, uint m, IntPtr w, IntPtr l);
   [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr h, IntPtr hdc, uint f);
+  [DllImport("user32.dll")] public static extern IntPtr GetDlgItem(IntPtr h, int id);
   [DllImport("user32.dll")] public static extern void keybd_event(byte vk, byte scan, uint flags, UIntPtr extra);
   [DllImport("dwmapi.dll")] public static extern int DwmGetWindowAttribute(IntPtr h, int a, out RECT r, int sz);
   public static string Cls(IntPtr h) { var s = new StringBuilder(256); GetClassNameW(h, s, 256); return s.ToString(); }
@@ -76,6 +80,9 @@ Set-Content -Encoding utf8 (Join-Path $src "src\ui\window.rs") ("// window`r`n" 
 $rnd = New-Object byte[] 300000; (New-Object Random 42).NextBytes($rnd)
 [IO.File]::WriteAllBytes((Join-Path $src "图片\2024 旅行\西湖.jpg"), $rnd)
 [IO.File]::WriteAllBytes((Join-Path $src "图片\封面.png"), $rnd[0..90000])
+# Settings file used by every okzip.exe below (no Explorer windows popping up).
+$env:OKZIP_SETTINGS = Join-Path $work "settings.json"
+[IO.File]::WriteAllText($env:OKZIP_SETTINGS, '{ "overwrite": "ask", "open_folder_after_extract": false, "extract_target": "ask" }')
 $zip = Join-Path $work "示例压缩包.zip"
 & $cli create $zip $src -f zip
 if ($LASTEXITCODE -ne 0) { throw "okzip-cli create failed ($LASTEXITCODE)" }
@@ -130,6 +137,13 @@ function WaitWindow([System.Diagnostics.Process]$p, [scriptblock]$match, [int]$t
   throw "window not found within ${timeoutSec}s; visible windows: $($all -join '; ')"
 }
 function Dialog([System.Diagnostics.Process]$p) { WaitWindow $p { param($h) [W]::Cls($h) -eq "#32770" } }
+function DialogTitled([System.Diagnostics.Process]$p, [string]$title) { WaitWindow $p { param($h) ([W]::Cls($h) -eq "#32770") -and ([W]::Txt($h) -eq $title) } }
+function WaitExit([System.Diagnostics.Process]$p, [int]$sec = 30) {
+  if (-not $p.WaitForExit($sec * 1000)) { throw "okzip.exe did not exit within ${sec}s" }
+  return $p.ExitCode
+}
+$PSM_SETCURSEL = 0x0465
+$BM_SETCHECK = 0x00F1
 function CloseDialog([IntPtr]$h) { [W]::PostMessageW($h, $WM_COMMAND, [IntPtr]2, [IntPtr]::Zero) | Out-Null; Start-Sleep -Milliseconds 800 }
 function Launch([string[]]$argv, [string]$lang) {
   $env:OKZIP_LANG = $lang
@@ -168,10 +182,25 @@ try {
 
   [W]::PostMessageW($main, $WM_COMMAND, [IntPtr]40017, [IntPtr]::Zero) | Out-Null   # ID_SETTINGS
   $dlg = Dialog $p; Start-Sleep -Milliseconds 800
-  Shot $dlg "04-settings-dialog-zh"; CloseDialog $dlg
+  $tabs = @("04a-settings-general-zh", "04b-settings-extract-zh", "04c-settings-compress-zh", "04d-settings-shell-zh")
+  for ($i = 0; $i -lt $tabs.Count; $i++) {
+    [W]::SendMessageW($dlg, $PSM_SETCURSEL, [IntPtr]$i, [IntPtr]::Zero) | Out-Null
+    Start-Sleep -Milliseconds 600
+    Shot $dlg $tabs[$i]
+  }
+  CloseDialog $dlg
 
   if ($p.HasExited) { throw "SMOKE TEST FAILED: okzip.exe died after closing dialogs (code $($p.ExitCode))" }
-  Stop-Process -Id $p.Id -Force
+  # Close normally (WM_CLOSE) so the window state and recent list get saved.
+  [W]::PostMessageW($main, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
+  $code = WaitExit $p 15
+  Write-Host "main window closed, exit code $code"
+  $saved = Get-Content -Raw -Encoding utf8 $env:OKZIP_SETTINGS
+  Write-Host "settings.json after close:`n$saved"
+  $json = $saved | ConvertFrom-Json
+  if (-not $json.window) { throw "SMOKE TEST FAILED: window placement was not saved" }
+  if ($json.column_widths.Count -ne 7) { throw "SMOKE TEST FAILED: expected 7 saved column widths, got $($json.column_widths.Count)" }
+  if (-not ($json.recent -contains $zip)) { throw "SMOKE TEST FAILED: recent list does not contain the sample" }
 
   # 2) create dialog: `okzip.exe a <folder>` opens it directly
   $p = Launch @("a", "`"$src`"") "zh"; $procs += $p
@@ -187,7 +216,77 @@ try {
   [W]::PostMessageW($main, $WM_COMMAND, [IntPtr]40002, [IntPtr]::Zero) | Out-Null
   $dlg = Dialog $p; Start-Sleep -Milliseconds 800
   Shot $dlg "06-extract-dialog-en"; CloseDialog $dlg
+  [W]::PostMessageW($main, $WM_COMMAND, [IntPtr]40017, [IntPtr]::Zero) | Out-Null   # ID_SETTINGS
+  $dlg = Dialog $p; Start-Sleep -Milliseconds 800
+  Shot $dlg "09-settings-general-en"
+  [W]::SendMessageW($dlg, $PSM_SETCURSEL, [IntPtr]3, [IntPtr]::Zero) | Out-Null
+  Start-Sleep -Milliseconds 600
+  Shot $dlg "09b-settings-shell-en"
+  CloseDialog $dlg
   Stop-Process -Id $p.Id -Force
+
+  # 4) overwrite conflict: extract the same archive twice into one folder (policy 询问)
+  $xdir = Join-Path $work "extract-test"
+  New-Item -ItemType Directory -Force -Path $xdir | Out-Null
+  $xzip = Join-Path $xdir "示例压缩包.zip"
+  Copy-Item $zip $xzip
+  $env:OKZIP_LANG = "zh"
+  $p = Start-Process -FilePath $exe -ArgumentList @("x", "`"$xzip`"") -PassThru -WorkingDirectory $work; $procs += $p
+  $code = WaitExit $p 60
+  if ($code -ne 0) { throw "SMOKE TEST FAILED: first extraction exited with $code" }
+  if (-not (Test-Path (Join-Path $xdir "示例项目\说明.txt"))) { throw "SMOKE TEST FAILED: first extraction produced no files" }
+  # make one existing file different so the sizes in the dialog differ
+  Set-Content -Encoding utf8 (Join-Path $xdir "示例项目\README.md") "old"
+  $env:OKZIP_LANG = "zh"
+  $p = Start-Process -FilePath $exe -ArgumentList @("x", "`"$xzip`"") -PassThru -WorkingDirectory $work; $procs += $p
+  $dlg = DialogTitled $p "确认文件替换"; Start-Sleep -Milliseconds 800
+  Shot $dlg "07-conflict-dialog-zh"
+  # 对后续所有文件执行相同操作 + 跳过
+  [W]::SendMessageW([W]::GetDlgItem($dlg, 1709), $BM_SETCHECK, [IntPtr]1, [IntPtr]::Zero) | Out-Null
+  [W]::PostMessageW($dlg, $WM_COMMAND, [IntPtr]1711, [IntPtr]::Zero) | Out-Null
+  $code = WaitExit $p 60
+  if ($code -ne 0) { throw "SMOKE TEST FAILED: second extraction (skip all) exited with $code" }
+  if ((Get-Content -Raw (Join-Path $xdir "示例项目\README.md")).Trim() -ne "old") { throw "SMOKE TEST FAILED: 'skip all' overwrote a file" }
+  $env:OKZIP_LANG = "en"
+  $p = Start-Process -FilePath $exe -ArgumentList @("x", "`"$xzip`"") -PassThru -WorkingDirectory $work; $procs += $p
+  $dlg = DialogTitled $p "Confirm file replace"; Start-Sleep -Milliseconds 800
+  Shot $dlg "08-conflict-dialog-en"
+  [W]::PostMessageW($dlg, $WM_COMMAND, [IntPtr]2, [IntPtr]::Zero) | Out-Null   # Cancel
+  WaitExit $p 30 | Out-Null
+
+  # 5) Explorer context menu: register, inspect, unregister
+  $p = Start-Process -FilePath $exe -ArgumentList "--register-shell" -PassThru -Wait
+  if ($p.ExitCode -ne 0) { throw "SMOKE TEST FAILED: --register-shell exited with $($p.ExitCode)" }
+  foreach ($k in @("HKCU:\Software\Classes\Directory\shell\OKZip", "HKCU:\Software\Classes\*\shell\OKZip",
+                   "HKCU:\Software\Classes\SystemFileAssociations\.zip\shell\OKZip", "HKCU:\Software\Classes\OKZip.ArchiveMenu\shell\02ExtractHere\command")) {
+    if (-not (Test-Path -LiteralPath $k)) { throw "SMOKE TEST FAILED: missing registry key $k" }
+    $v = Get-ItemProperty -LiteralPath $k
+    Write-Host "$k : $(($v.PSObject.Properties | Where-Object { $_.Name -notlike 'PS*' } | ForEach-Object { "$($_.Name)=$($_.Value)" }) -join ' | ')"
+  }
+  try {
+    $shell = New-Object -ComObject Shell.Application
+    foreach ($f in @($xzip, (Join-Path $src "说明.txt"))) {
+      $item = $shell.NameSpace((Split-Path $f)).ParseName((Split-Path $f -Leaf))
+      $names = @($item.Verbs() | ForEach-Object { $_.Name })
+      $ok = @($names | Where-Object { $_ -match "OK Zip" }).Count
+      Write-Host "context menu of $(Split-Path $f -Leaf): 'OK Zip' entries = $ok; verbs = $($names -join ' | ')"
+    }
+  } catch { Write-Warning "Shell.Application verb listing failed: $($_.Exception.Message)" }
+  $p = Start-Process -FilePath $exe -ArgumentList "--unregister-shell" -PassThru -Wait
+  if (Test-Path -LiteralPath "HKCU:\Software\Classes\Directory\shell\OKZip") { throw "SMOKE TEST FAILED: --unregister-shell left keys behind" }
+
+  # 6) multi-selection compress: one process per file (as Explorer does) -> one archive
+  $gdir = Join-Path $work "gather-test"
+  New-Item -ItemType Directory -Force -Path $gdir | Out-Null
+  $gfiles = @("a.txt", "b.txt", "c.txt", "d.txt") | ForEach-Object { $f = Join-Path $gdir $_; Set-Content -Encoding utf8 $f ("data " + $_); $f }
+  $gp = @($gfiles | ForEach-Object { Start-Process -FilePath $exe -ArgumentList @("a", "--format", "zip", "--quick", "--gather", "`"$_`"") -PassThru })
+  foreach ($q in $gp) { if (-not $q.WaitForExit(60000)) { throw "SMOKE TEST FAILED: gather process hung" } }
+  $made = @(Get-ChildItem $gdir -Filter *.zip)
+  Write-Host "gather: exit codes $(($gp | ForEach-Object { $_.ExitCode }) -join ','); archives: $(($made | ForEach-Object { $_.Name }) -join ', ')"
+  if ($made.Count -ne 1) { throw "SMOKE TEST FAILED: expected 1 archive from a 4-file selection, got $($made.Count)" }
+  $listing = & $cli list $made[0].FullName | Out-String
+  Write-Host $listing
+  foreach ($n in @("a.txt", "b.txt", "c.txt", "d.txt")) { if ($listing -notmatch [regex]::Escape($n)) { throw "SMOKE TEST FAILED: $n missing from the gathered archive" } }
 }
 catch {
   Write-Host "::error::$($_.Exception.Message)"

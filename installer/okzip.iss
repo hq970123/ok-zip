@@ -1,8 +1,11 @@
-; Inno Setup script for OK Zip (per-user install by default; no admin needed).
-; Build: ISCC.exe /DAppVersion=0.1.0 /DSourceDir=..\dist\okzip installer\okzip.iss
+﻿; Inno Setup script for OK Zip (per-user install by default; no admin needed).
+; Build: ISCC.exe /DAppVersion=0.2.0 /DSourceDir=..\dist\okzip installer\okzip.iss
+; Languages: English + Simplified Chinese (ChineseSimplified.isl is vendored,
+; see ChineseSimplified.LICENSE.txt). The wizard picks the one matching the
+; Windows UI language and shows a language selector otherwise.
 
 #ifndef AppVersion
-  #define AppVersion "0.1.0"
+  #define AppVersion "0.2.0"
 #endif
 #ifndef SourceDir
   #define SourceDir "..\dist\okzip"
@@ -29,13 +32,25 @@ Compression=lzma2/ultra
 SolidCompression=yes
 WizardStyle=modern
 ChangesAssociations=yes
+ShowLanguageDialog=auto
+UsePreviousLanguage=no
+VersionInfoVersion={#AppVersion}
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
+Name: "chinesesimplified"; MessagesFile: "ChineseSimplified.isl"
+
+[CustomMessages]
+english.GroupExplorer=Explorer integration:
+english.TaskContextMenu=Add an "OK Zip" submenu to the Explorer right-click menu (open, extract, test, compress)
+english.TaskAssociate=Associate archive files (.zip, .7z, .rar, .tar, ...) with OK Zip
+chinesesimplified.GroupExplorer=资源管理器集成：
+chinesesimplified.TaskContextMenu=在资源管理器右键菜单中添加“OK Zip”子菜单（打开、解压、测试、压缩）
+chinesesimplified.TaskAssociate=将压缩文件（.zip、.7z、.rar、.tar 等）关联到 OK Zip
 
 [Tasks]
-Name: "contextmenu"; Description: "Add OK Zip to the Explorer right-click menu / 添加到资源管理器右键菜单"; GroupDescription: "Explorer:"
-Name: "associate"; Description: "Offer OK Zip for archive files (Open with) / 关联压缩文件"; GroupDescription: "Explorer:"
+Name: "contextmenu"; Description: "{cm:TaskContextMenu}"; GroupDescription: "{cm:GroupExplorer}"
+Name: "associate"; Description: "{cm:TaskAssociate}"; GroupDescription: "{cm:GroupExplorer}"
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
 [Files]
@@ -58,4 +73,5 @@ Filename: "{app}\okzip.exe"; Parameters: "--unregister-shell"; Flags: runhidden;
 Filename: "{app}\okzip.exe"; Parameters: "--unassociate"; Flags: runhidden; RunOnceId: "Unassoc"
 
 [UninstallDelete]
+Type: filesandordirs; Name: "{localappdata}\Temp\OKZip-gather-*"
 Type: filesandordirs; Name: "{localappdata}\Temp\OKZip-*"
