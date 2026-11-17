@@ -243,10 +243,24 @@ pub enum ConflictChoice {
     /// Apply to this and all later conflicts.
     OverwriteAll,
     SkipAll,
+    RenameAll,
     Cancel,
 }
 
-pub type ConflictCallback = dyn Fn(&Path) -> ConflictChoice + Send + Sync;
+/// What the extractor knows about a conflict when it asks [`ExtractOptions::on_conflict`].
+#[derive(Clone, Copy, Debug)]
+pub struct ConflictInfo<'a> {
+    /// The existing file that would be replaced.
+    pub target: &'a Path,
+    /// The entry's path inside the archive.
+    pub entry_path: &'a str,
+    /// Uncompressed size of the incoming entry, when the format records it.
+    pub new_size: Option<u64>,
+    /// Modification time (Unix seconds) of the incoming entry.
+    pub new_modified: Option<i64>,
+}
+
+pub type ConflictCallback = dyn Fn(&ConflictInfo<'_>) -> ConflictChoice + Send + Sync;
 
 #[derive(Clone, Default)]
 pub struct OpenOptions {

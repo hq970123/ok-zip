@@ -1,7 +1,7 @@
 //! Shared helpers: path safety, conflicts, timestamps, source collection.
 
 use crate::error::{Error, Result};
-use crate::types::{ConflictChoice, ExtractOptions, OverwriteMode};
+use crate::types::{ConflictChoice, ConflictInfo, ExtractOptions, OverwriteMode};
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicU8, Ordering};
@@ -69,7 +69,7 @@ pub(crate) fn is_selected(path: &str, selection: &Option<Vec<String>>) -> bool {
 pub(crate) struct OutputPlanner<'a> {
     dest: PathBuf,
     opts: &'a ExtractOptions,
-    sticky: AtomicU8, // 0 = none, 1 = overwrite all, 2 = skip all
+    sticky: AtomicU8, // 0 = none, 1 = overwrite all, 2 = skip all, 3 = rename all
 }
 
 pub(crate) enum Planned {
@@ -108,7 +108,8 @@ impl<'a> OutputPlanner<'a> {
     }
 
     /// File target after applying the overwrite policy. Creates parent dirs.
-    pub(crate) fn file_path(&self, entry_path: &str) -> Result<Planned> {
+    /// `new_size` / `new_mtime` describe the incoming entry (shown when asking).
+    pub(crate) fn file_path(&self, entry_path: &str, new_size: Option<u64>, new_mtime: Option<i64>) -> Result<Planned> {
         let Some(rel) = self.relative(entry_path) else { return Ok(Planned::Skip) };
         let target = self.dest.join(rel);
         if let Some(parent) = target.parent() {
@@ -124,6 +125,7 @@ impl<'a> OutputPlanner<'a> {
         let mode = match self.sticky.load(Ordering::Relaxed) {
             1 => OverwriteMode::Overwrite,
             2 => OverwriteMode::Skip,
+            3 => OverwriteMode::Rename,
             _ => self.opts.overwrite,
         };
         match mode {
@@ -132,7 +134,7 @@ impl<'a> OutputPlanner<'a> {
             OverwriteMode::Rename => Ok(Planned::Write(unique_path(&target))),
             OverwriteMode::Ask => {
                 let choice = match &self.opts.on_conflict {
-                    Some(cb) => cb(&target),
+                    Some(cb) => cb(&ConflictInfo { target: &target, entry_path, new_size, new_modified: new_mtime }),
                     None => ConflictChoice::Skip,
                 };
                 match choice {
@@ -147,6 +149,10 @@ impl<'a> OutputPlanner<'a> {
                         Ok(Planned::Skip)
                     }
                     ConflictChoice::Rename => Ok(Planned::Write(unique_path(&target))),
+                    ConflictChoice::RenameAll => {
+                        self.sticky.store(3, Ordering::Relaxed);
+                        Ok(Planned::Write(unique_path(&target)))
+                    }
                     ConflictChoice::Cancel => Err(Error::Cancelled),
                 }
             }

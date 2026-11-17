@@ -312,13 +312,27 @@ fn overwrite_policies() {
     let mut ask = ExtractOptions::new().overwrite(OverwriteMode::Ask);
     let asked = Arc::new(AtomicU64::new(0));
     let a2 = asked.clone();
-    ask.on_conflict = Some(Arc::new(move |_p: &Path| {
+    ask.on_conflict = Some(Arc::new(move |c: &ConflictInfo<'_>| {
+        assert!(c.target.is_file());
+        assert!(c.new_size.is_some());
         a2.fetch_add(1, Ordering::Relaxed);
         ConflictChoice::OverwriteAll
     }));
     extract(&a, &out, &ask, &Progress::new()).unwrap();
     assert_eq!(asked.load(Ordering::Relaxed), 1, "OverwriteAll answers once");
     assert_ne!(fs::read(&f).unwrap(), b"changed");
+
+    let mut ren = ExtractOptions::new().overwrite(OverwriteMode::Ask);
+    let asked = Arc::new(AtomicU64::new(0));
+    let a3 = asked.clone();
+    ren.on_conflict = Some(Arc::new(move |_c: &ConflictInfo<'_>| {
+        a3.fetch_add(1, Ordering::Relaxed);
+        ConflictChoice::RenameAll
+    }));
+    let s = extract(&a, &out, &ren, &Progress::new()).unwrap();
+    assert_eq!(asked.load(Ordering::Relaxed), 1, "RenameAll answers once");
+    assert_eq!(s.files, 5);
+    assert!(out.join("项目 data/hello (3).txt").is_file());
 }
 
 #[test]

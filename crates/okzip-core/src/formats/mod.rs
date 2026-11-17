@@ -19,12 +19,13 @@ pub(crate) fn write_entry<R: Read + ?Sized>(
     planner: &OutputPlanner<'_>,
     entry_path: &str,
     data: &mut R,
+    size: Option<u64>,
     mtime: Option<i64>,
     preserve_mtime: bool,
     progress: &Progress,
     stats: &mut OpStats,
 ) -> Result<()> {
-    match planner.file_path(entry_path)? {
+    match planner.file_path(entry_path, size, mtime)? {
         Planned::Skip => {
             stats.skipped += 1;
             // Still consume nothing: callers that must drain do so themselves.

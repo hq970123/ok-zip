@@ -397,7 +397,7 @@ impl<'a> Run<'a> {
 
     /// Decide what to do with one entry. `None` means "skip" (no decoding
     /// needed); `Some(w)` must be handed to rars.
-    fn open(&mut self, name: String, is_dir: bool, mtime: Option<i64>) -> Result<Option<Box<dyn Write>>> {
+    fn open(&mut self, name: String, is_dir: bool, size: Option<u64>, mtime: Option<i64>) -> Result<Option<Box<dyn Write>>> {
         self.finish_current();
         self.progress.check()?;
         let wanted = !name.is_empty() && self.planner.is_none_or(|pl| pl.wants(&name));
@@ -415,7 +415,7 @@ impl<'a> Run<'a> {
         self.progress.begin_file(&name);
         let target = match self.planner {
             None => None,
-            Some(pl) => match pl.file_path(&name)? {
+            Some(pl) => match pl.file_path(&name, size, mtime)? {
                 Planned::Skip => {
                     self.stats.skipped += 1;
                     self.progress.file_done();
@@ -481,7 +481,7 @@ fn walk(set: &RarSet, pw: Option<&str>, run: &mut Run<'_>, keep_going: bool) -> 
             let name = decode_name(&m.meta.name, m.name_is_unicode(), family);
             let mtime = m.meta.modification_time().and_then(system_time_to_unix);
             let solid = run.solid;
-            let r = run.open(name, m.meta.is_directory, mtime);
+            let r = run.open(name, m.meta.is_directory, Some(m.meta.unpacked_size), mtime);
             Ok(match run.stash(r)? {
                 Some(w) => ExtractionDecision::Extract(w),
                 None if solid && !m.meta.is_directory => ExtractionDecision::Extract(Box::new(io::sink())),
@@ -510,7 +510,7 @@ fn walk(set: &RarSet, pw: Option<&str>, run: &mut Run<'_>, keep_going: bool) -> 
         rars::extract_volumes_to_with_options(&set.vols, options, |meta: &ExtractedEntryMeta| {
             let name = decode_name(&meta.name, meta.name_is_unicode, family);
             let mtime = raw_time_to_unix(meta.file_time, family);
-            let r = run.open(name, meta.is_directory, mtime);
+            let r = run.open(name, meta.is_directory, None, mtime);
             Ok(run.stash(r)?.unwrap_or_else(|| Box::new(io::sink())))
         })
     };

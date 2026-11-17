@@ -112,7 +112,7 @@ pub(crate) fn extract(path: &Path, dest: &Path, opts: &ExtractOptions, p: &Progr
         if entry.is_directory {
             make_dir(&planner, &name, mtime, &mut stats)?;
         } else {
-            write_entry(&planner, &name, data, mtime, opts.preserve_mtime, p, &mut stats)?;
+            write_entry(&planner, &name, data, Some(entry.size), mtime, opts.preserve_mtime, p, &mut stats)?;
         }
         p.file_done();
         Ok(())

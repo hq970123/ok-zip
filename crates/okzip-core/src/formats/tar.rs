@@ -171,7 +171,7 @@ pub(crate) fn extract(path: &Path, fmt: ArchiveFormat, dest: &Path, opts: &Extra
         p.begin_file(&e.path);
         let (r, _, _) = open_reader(path)?;
         let mut dec = decoder(fmt, r)?;
-        write_entry(&planner, &e.path, &mut dec, e.modified, opts.preserve_mtime, p, &mut stats)?;
+        write_entry(&planner, &e.path, &mut dec, (e.size > 0).then_some(e.size), e.modified, opts.preserve_mtime, p, &mut stats)?;
         p.file_done();
         p.finish();
         return Ok(stats);
@@ -196,7 +196,8 @@ pub(crate) fn extract(path: &Path, fmt: ArchiveFormat, dest: &Path, opts: &Extra
         if kind.is_dir() {
             make_dir(&planner, &name, mtime, &mut stats)?;
         } else if kind.is_file() || kind == ::tar::EntryType::Continuous || kind == ::tar::EntryType::GNUSparse {
-            write_entry(&planner, &name, &mut ent, mtime, opts.preserve_mtime, &quiet, &mut stats)?;
+            let size = ent.header().size().ok();
+            write_entry(&planner, &name, &mut ent, size, mtime, opts.preserve_mtime, &quiet, &mut stats)?;
         } else if kind.is_symlink() || kind.is_hard_link() {
             #[cfg(unix)]
             if let Some(target_dir) = planner.dir_path(&name).and_then(|t| t.parent().map(|x| x.to_path_buf())) {

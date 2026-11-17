@@ -103,7 +103,7 @@ pub(crate) fn extract(path: &Path, dest: &Path, opts: &ExtractOptions, p: &Progr
                 (None, true) => return Err(Error::PasswordRequired),
                 _ => za.by_index(e.index)?,
             };
-            write_entry(&planner, &e.path, &mut f, e.modified, opts.preserve_mtime, p, &mut stats)
+            write_entry(&planner, &e.path, &mut f, Some(e.size), e.modified, opts.preserve_mtime, p, &mut stats)
                 .map_err(|err| wrong_password_hint(err, e.encrypted))?;
         }
         p.file_done();
