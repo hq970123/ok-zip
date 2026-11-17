@@ -122,15 +122,35 @@ pub fn scale(v: i32, dpi: u32) -> i32 {
     (v as i64 * dpi as i64 / 96) as i32
 }
 
-/// UI typeface: Microsoft YaHei UI for the Chinese UI (so Simplified Chinese
-/// never falls back glyph-by-glyph to a Japanese font on non-Chinese Windows),
-/// Segoe UI otherwise.
-pub fn ui_face() -> &'static str {
-    if super::i18n::is_zh() {
-        "Microsoft YaHei UI"
-    } else {
-        "Segoe UI"
+/// True when a font family with this exact name is installed.
+pub fn font_installed(face: &str) -> bool {
+    unsafe extern "system" fn found(_lf: *const LOGFONTW, _tm: *const TEXTMETRICW, _ty: u32, lp: LPARAM) -> i32 {
+        unsafe { *(lp as *mut bool) = true };
+        0 // stop enumerating
     }
+    unsafe {
+        let mut lf: LOGFONTW = std::mem::zeroed();
+        lf.lfCharSet = DEFAULT_CHARSET;
+        let w = wide(face);
+        let n = w.len().min(32);
+        lf.lfFaceName[..n].copy_from_slice(&w[..n]);
+        lf.lfFaceName[31] = 0;
+        let hdc = GetDC(std::ptr::null_mut());
+        let mut hit = false;
+        EnumFontFamiliesExW(hdc, &lf, Some(found), &mut hit as *mut bool as LPARAM, 0);
+        ReleaseDC(std::ptr::null_mut(), hdc);
+        hit
+    }
+}
+
+/// UI typeface: Microsoft YaHei UI whenever it is installed (it ships with
+/// every Windows 8+ install), in both languages. Its Latin glyphs are close to
+/// Segoe UI, and Chinese file names shown in the English UI then render with
+/// Simplified Chinese glyphs instead of Segoe UI's font-link fallback to a
+/// Japanese font (which mixes glyph shapes). Segoe UI otherwise.
+pub fn ui_face() -> &'static str {
+    static FACE: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new();
+    FACE.get_or_init(|| if font_installed("Microsoft YaHei UI") { "Microsoft YaHei UI" } else { "Segoe UI" })
 }
 
 /// The UI font (system message font metrics, [`ui_face`] typeface) at the given DPI.
@@ -366,6 +386,11 @@ pub fn icon_for_path(p: &Path) -> i32 {
 
 /// Unix seconds → local "YYYY-MM-DD HH:MM".
 pub fn format_time(unix: Option<i64>) -> String {
+    format_time_ex(unix, false)
+}
+
+/// Unix seconds → local "YYYY-MM-DD HH:MM[:SS]".
+pub fn format_time_ex(unix: Option<i64>, seconds: bool) -> String {
     use windows_sys::Win32::System::Time::{FileTimeToSystemTime, SystemTimeToTzSpecificLocalTime};
     let Some(t) = unix else { return String::new() };
     let ticks = (t + 11_644_473_600) as u64 * 10_000_000;
@@ -376,7 +401,11 @@ pub fn format_time(unix: Option<i64>) -> String {
         if FileTimeToSystemTime(&ft, &mut utc) == 0 || SystemTimeToTzSpecificLocalTime(null(), &utc, &mut local) == 0 {
             return String::new();
         }
-        format!("{:04}-{:02}-{:02} {:02}:{:02}", local.wYear, local.wMonth, local.wDay, local.wHour, local.wMinute)
+        let mut out = format!("{:04}-{:02}-{:02} {:02}:{:02}", local.wYear, local.wMonth, local.wDay, local.wHour, local.wMinute);
+        if seconds {
+            out.push_str(&format!(":{:02}", local.wSecond));
+        }
+        out
     }
 }
 

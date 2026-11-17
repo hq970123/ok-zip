@@ -5,6 +5,7 @@ fn main() {
     println!("cargo:rerun-if-changed=res/resource.h");
     println!("cargo:rerun-if-changed=res/app.manifest");
     println!("cargo:rerun-if-changed=res/okzip.ico");
+    println!("cargo:rerun-if-changed=res/tb");
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
         embed_resource::compile("res/app.rc", embed_resource::NONE)
             .manifest_required()

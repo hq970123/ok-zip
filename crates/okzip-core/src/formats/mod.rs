@@ -15,6 +15,7 @@ use std::fs::{self, File};
 use std::io::{BufWriter, Read, Write};
 
 /// Write one entry's data to disk according to the planner's policy.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn write_entry<R: Read + ?Sized>(
     planner: &OutputPlanner<'_>,
     entry_path: &str,

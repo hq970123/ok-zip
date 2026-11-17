@@ -8,18 +8,24 @@
 //! okzip.exe x  <archive>              extract here (next to the archive)
 //! okzip.exe xs <archive>              extract to "<name>\" (smart: no double folder)
 //! okzip.exe t  <archive>              test the archive
-//! okzip.exe a [--format zip|7z|...] [--quick] [--out FILE] <files/folders...>
-//!                                     create an archive (dialog, or directly with --quick)
+//! okzip.exe a [--format zip|7z|...] [--quick] [--gather] [--out FILE] <files/folders...>
+//!                                     create ONE archive from all paths (dialog, or directly
+//!                                     with --quick). --gather: Explorer starts one process per
+//!                                     selected item; the first collects the others' paths
+//!                                     (see `gather`) so a multi-selection makes one archive.
 //! okzip.exe --register-shell | --unregister-shell | --associate | --unassociate
 //!                                     silent Explorer integration (used by the installer)
 //! ```
 
 mod dialogs;
+mod dragout;
+mod gather;
 mod i18n;
 mod ids;
 mod mainwnd;
 mod progress;
 mod registry;
+mod settings;
 mod util;
 
 use i18n::{tr, trf, S};
@@ -27,7 +33,7 @@ use okzip_core::*;
 use progress::{conflict_prompt, report_error, run_task, with_password};
 use std::path::{Path, PathBuf};
 use util::*;
-use windows_sys::Win32::System::Com::{CoInitializeEx, COINIT_APARTMENTTHREADED, COINIT_DISABLE_OLE1DDE};
+use windows_sys::Win32::System::Ole::OleInitialize;
 use windows_sys::Win32::UI::Controls::{InitCommonControlsEx, ICC_BAR_CLASSES, ICC_LISTVIEW_CLASSES, ICC_PROGRESS_CLASS, ICC_STANDARD_CLASSES, ICC_TREEVIEW_CLASSES, ICC_WIN95_CLASSES, INITCOMMONCONTROLSEX};
 use windows_sys::Win32::UI::HiDpi::{SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2};
 use windows_sys::Win32::UI::WindowsAndMessaging::*;
@@ -36,7 +42,8 @@ pub fn run() {
     unsafe {
         // The manifest already declares PerMonitorV2; this covers unmanifested debug runs.
         SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
-        CoInitializeEx(std::ptr::null(), (COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE) as u32);
+        // OLE (not just COM): drag-out uses DoDragDrop.
+        OleInitialize(std::ptr::null());
         let icc = INITCOMMONCONTROLSEX {
             dwSize: std::mem::size_of::<INITCOMMONCONTROLSEX>() as u32,
             dwICC: ICC_WIN95_CLASSES | ICC_BAR_CLASSES | ICC_LISTVIEW_CLASSES | ICC_TREEVIEW_CLASSES | ICC_PROGRESS_CLASS | ICC_STANDARD_CLASSES,
@@ -99,6 +106,7 @@ fn message_loop(initial: Option<PathBuf>) -> i32 {
 fn cli_extract(archive: &Path, subfolder: bool) -> bool {
     let owner = std::ptr::null_mut();
     let parent = archive.parent().map(Path::to_path_buf).unwrap_or_default();
+    let cfg = settings::get();
     let mut pw: Option<String> = None;
     let dest = if subfolder {
         // Listing may itself need a password (encrypted headers).
@@ -122,13 +130,18 @@ fn cli_extract(archive: &Path, subfolder: bool) -> bool {
     let result = with_password(owner, archive, &mut pw, |pw| {
         let (a, d) = (a.clone(), d.clone());
         run_task(owner, tr(S::GExtracting), move |p, dlg| {
-            let mut o = ExtractOptions::new().password(pw).overwrite(OverwriteMode::Ask);
+            let mut o = ExtractOptions::new().password(pw).overwrite(cfg.overwrite.mode());
             o.on_conflict = Some(conflict_prompt(dlg));
             extract(&a, &d, &o, &p)
         })
     });
     match result {
-        Ok(_) => true,
+        Ok(_) => {
+            if cfg.open_folder_after_extract {
+                util::shell_open(owner, &dest);
+            }
+            true
+        }
         Err(e) => {
             report_error(owner, &archive.display().to_string(), &e);
             false
@@ -164,8 +177,10 @@ fn cli_test(archive: &Path) -> bool {
 /// `a [--format F] [--quick] [--out FILE] paths...`
 fn cli_create(args: &[String]) -> i32 {
     let owner = std::ptr::null_mut();
-    let mut format = ArchiveFormat::Zip;
+    let cfg = settings::get();
+    let mut format = cfg.format();
     let mut quick = false;
+    let mut gather_mode = false;
     let mut out: Option<PathBuf> = None;
     let mut sources = Vec::new();
     let mut it = args.iter();
@@ -177,8 +192,15 @@ fn cli_create(args: &[String]) -> i32 {
                 }
             }
             "--quick" | "-q" => quick = true,
+            "--gather" => gather_mode = true,
             "--out" | "-o" => out = it.next().map(PathBuf::from),
             _ => sources.push(PathBuf::from(a)),
+        }
+    }
+    if gather_mode {
+        match gather::collect(&format!("a-{}", format.extension()), &sources) {
+            Some(all) => sources = all,
+            None => return 0, // handed our paths to the collecting process
         }
     }
     if sources.is_empty() {
@@ -192,7 +214,8 @@ fn cli_create(args: &[String]) -> i32 {
     }
     let target = out.or_else(|| default_archive_path(&sources, format)).unwrap_or_else(|| PathBuf::from(format!("archive.{}", format.extension())));
     let target = if target.exists() { unique_path(&target) } else { target };
-    let opts = CreateOptions::new(format);
+    let mut opts = CreateOptions::new(format);
+    opts.level = cfg.level();
     let t2 = target.clone();
     match run_task(owner, tr(S::GCompressing), move |p, _| create(&sources, &t2, &opts, &p)) {
         Ok(_) => 0,

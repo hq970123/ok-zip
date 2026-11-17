@@ -2,6 +2,8 @@
 //! virtual report list view with shell icons, status bar, splitter, drag & drop.
 
 use super::dialogs::{create_dialog, extract_dialog, settings_dialog};
+use super::dragout;
+use super::settings::{self, ExtractTarget};
 use super::i18n::{tr, trf, S};
 use super::ids::*;
 use super::progress::{conflict_prompt, report_error, run_task, with_password};
@@ -150,6 +152,7 @@ pub struct App {
     temp_root: PathBuf,
     temp_counter: Cell<u32>,
     toolbar_images: Cell<HIMAGELIST>,
+    recent_menu: Cell<HMENU>,
 }
 
 thread_local! {
@@ -183,6 +186,7 @@ pub fn create_main_window(initial: Option<PathBuf>) -> HWND {
             hIconSm: LoadImageW(hinst, make_int_resource(IDI_APP), IMAGE_ICON, small, small, LR_DEFAULTCOLOR) as HICON,
         };
         RegisterClassExW(&wc);
+        let cfg = settings::get();
 
         let state: &'static App = Box::leak(Box::new(App {
             hwnd: Cell::new(null_mut()),
@@ -193,9 +197,9 @@ pub fn create_main_window(initial: Option<PathBuf>) -> HWND {
             menu: Cell::new(null_mut()),
             font: Cell::new(null_mut()),
             dpi: Cell::new(96),
-            split: Cell::new(230),
+            split: Cell::new(cfg.splitter.clamp(60, 2000)),
             dragging: Cell::new(false),
-            show_tree: Cell::new(true),
+            show_tree: Cell::new(if cfg.remember_window { cfg.show_tree } else { true }),
             model: RefCell::new(None),
             password: RefCell::new(None),
             cur: Cell::new(0),
@@ -204,26 +208,38 @@ pub fn create_main_window(initial: Option<PathBuf>) -> HWND {
             temp_root: std::env::temp_dir().join(format!("OKZip-{}", std::process::id())),
             temp_counter: Cell::new(0),
             toolbar_images: Cell::new(0),
+            recent_menu: Cell::new(null_mut()),
         }));
         APP.with(|a| a.set(Some(state)));
 
         let sys_dpi = windows_sys::Win32::UI::HiDpi::GetDpiForSystem().max(96);
         let title = wide(tr(S::AppName));
+        // Restore the saved placement only when it is still on a monitor.
+        let saved = cfg.window.filter(|r| {
+            cfg.remember_window && r.w >= 300 && r.h >= 200 && {
+                let rc = RECT { left: r.x, top: r.y, right: r.x + r.w, bottom: r.y + r.h };
+                !MonitorFromRect(&rc, MONITOR_DEFAULTTONULL).is_null()
+            }
+        });
+        let (x, y, w, h) = match saved {
+            Some(r) => (r.x, r.y, r.w, r.h),
+            None => (CW_USEDEFAULT, CW_USEDEFAULT, scale(1000, sys_dpi), scale(640, sys_dpi)),
+        };
         let hwnd = CreateWindowExW(
             WS_EX_ACCEPTFILES,
             class.as_ptr(),
             title.as_ptr(),
             WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
-            CW_USEDEFAULT,
-            CW_USEDEFAULT,
-            scale(980, sys_dpi),
-            scale(640, sys_dpi),
+            x,
+            y,
+            w,
+            h,
             null_mut(),
             null_mut(),
             hinst,
             null(),
         );
-        ShowWindow(hwnd, SW_SHOWNORMAL);
+        ShowWindow(hwnd, if saved.is_some_and(|r| r.maximized) { SW_SHOWMAXIMIZED } else { SW_SHOWNORMAL });
         if let Some(path) = initial {
             state.open_archive(&path);
         }
@@ -255,7 +271,10 @@ impl App {
             self.hwnd.set(hwnd);
             self.dpi.set(dpi_of(hwnd));
             let hinst = hinstance();
-            self.menu.set(build_menu());
+            let (menu, recent) = build_menu();
+            self.menu.set(menu);
+            self.recent_menu.set(recent);
+            self.rebuild_recent_menu();
             SetMenu(hwnd, self.menu.get());
 
             // Toolbar
@@ -350,16 +369,16 @@ impl App {
             let size = scale(32, self.dpi.get()).clamp(32, 64);
             let old = self.toolbar_images.get();
             let il = ImageList_Create(size, size, ILC_COLOR32 | ILC_MASK, 8, 0);
-            let stock = [SIID_FOLDEROPEN, SIID_FOLDER, SIID_ZIPFILE, SIID_STACK, SIID_DELETE, SIID_SHIELD, SIID_FIND];
-            for id in stock {
-                let mut sii: SHSTOCKICONINFO = std::mem::zeroed();
-                sii.cbSize = std::mem::size_of::<SHSTOCKICONINFO>() as u32;
-                if SHGetStockIconInfo(id, SHGSI_ICON | SHGSI_LARGEICON, &mut sii) == 0 && !sii.hIcon.is_null() {
-                    ImageList_ReplaceIcon(il, -1, sii.hIcon);
-                    DestroyIcon(sii.hIcon);
+            // Our own icon set (app/res/tb/*.ico, 16-64 px each): one distinct,
+            // consistently drawn glyph per command.
+            let icons = [IDI_TB_OPEN, IDI_TB_EXTRACT, IDI_TB_NEW, IDI_TB_ADD, IDI_TB_DELETE, IDI_TB_TEST, IDI_TB_VIEW];
+            for id in icons {
+                let h = LoadImageW(hinstance(), make_int_resource(id), IMAGE_ICON, size, size, LR_DEFAULTCOLOR) as HICON;
+                if !h.is_null() {
+                    ImageList_ReplaceIcon(il, -1, h);
+                    DestroyIcon(h);
                 } else {
-                    let fallback = LoadIconW(null_mut(), IDI_APPLICATION);
-                    ImageList_ReplaceIcon(il, -1, fallback);
+                    ImageList_ReplaceIcon(il, -1, LoadIconW(null_mut(), IDI_APPLICATION));
                 }
             }
             SendMessageW(tb, TB_SETIMAGELIST, 0, il as isize);
@@ -370,7 +389,7 @@ impl App {
             // Remove existing buttons (DPI rebuild)
             while SendMessageW(tb, TB_DELETEBUTTON, 0, 0) != 0 {}
             let labels = [S::TbOpen, S::TbExtract, S::TbNew, S::TbAdd, S::TbDelete, S::TbTest, S::TbView];
-            let cmds = [ID_OPEN, ID_EXTRACT, ID_NEW, ID_ADD, ID_DELETE, ID_TEST, ID_VIEW];
+            let cmds = [ID_OPEN, ID_EXTRACT_DEFAULT, ID_NEW, ID_ADD, ID_DELETE, ID_TEST, ID_VIEW];
             let mut buttons: Vec<TBBUTTON> = Vec::new();
             for (i, (label, cmd)) in labels.iter().zip(cmds).enumerate() {
                 let mut s: Vec<u16> = tr(*label).encode_utf16().collect();
@@ -397,28 +416,61 @@ impl App {
 
     fn add_columns(&self) {
         let dpi = self.dpi.get();
-        let cols = [
-            // Sums to ~700 px so all columns fit the default window without a scrollbar.
-            (S::ColName, 205, LVCFMT_LEFT),
-            (S::ColPacked, 85, LVCFMT_RIGHT),
-            (S::ColSize, 85, LVCFMT_RIGHT),
-            (S::ColType, 110, LVCFMT_LEFT),
-            (S::ColModified, 125, LVCFMT_LEFT),
-            (S::ColCrc, 90, LVCFMT_LEFT),
-        ];
-        for (i, (s, w, fmt)) in cols.iter().enumerate() {
+        let saved = settings::get();
+        let saved_widths = if saved.remember_window && saved.column_widths.len() == COLUMNS.len() { Some(saved.column_widths) } else { None };
+        for (i, (s, w, fmt)) in COLUMNS.iter().enumerate() {
+            let w = saved_widths.as_ref().map(|v| v[i].clamp(24, 1200)).unwrap_or(*w);
             let mut text = wide(tr(*s));
             unsafe {
                 let mut c: LVCOLUMNW = std::mem::zeroed();
                 c.mask = LVCF_TEXT | LVCF_WIDTH | LVCF_FMT | LVCF_SUBITEM;
                 c.fmt = *fmt;
-                c.cx = scale(*w, dpi);
+                c.cx = scale(w, dpi);
                 c.pszText = text.as_mut_ptr();
                 c.iSubItem = i as i32;
                 SendMessageW(self.list.get(), LVM_INSERTCOLUMNW, i, &c as *const _ as isize);
             }
         }
         self.update_sort_arrow();
+    }
+
+    /// Current column widths in 96-DPI units.
+    fn column_widths(&self) -> Vec<i32> {
+        let dpi = self.dpi.get().max(96) as i64;
+        (0..COLUMNS.len())
+            .map(|i| {
+                let px = unsafe { SendMessageW(self.list.get(), LVM_GETCOLUMNWIDTH, i, 0) } as i64;
+                (px * 96 / dpi) as i32
+            })
+            .collect()
+    }
+
+    fn save_window_state(&self) {
+        unsafe {
+            let mut wp: WINDOWPLACEMENT = std::mem::zeroed();
+            wp.length = std::mem::size_of::<WINDOWPLACEMENT>() as u32;
+            let have = GetWindowPlacement(self.hwnd.get(), &mut wp) != 0;
+            let r = wp.rcNormalPosition;
+            let widths = self.column_widths();
+            let (split, tree) = (self.split.get(), self.show_tree.get());
+            settings::update(|s| {
+                if !s.remember_window {
+                    return;
+                }
+                if have && r.right > r.left && r.bottom > r.top {
+                    s.window = Some(settings::WindowRect {
+                        x: r.left,
+                        y: r.top,
+                        w: r.right - r.left,
+                        h: r.bottom - r.top,
+                        maximized: wp.showCmd == SW_SHOWMAXIMIZED as u32,
+                    });
+                }
+                s.column_widths = widths;
+                s.splitter = split;
+                s.show_tree = tree;
+            });
+        }
     }
 
     fn layout(&self) {
@@ -545,8 +597,44 @@ impl App {
             Ok(info) => {
                 *self.password.borrow_mut() = pw;
                 self.set_model(Model::build(info), "");
+                settings::update(|s| s.add_recent(&path));
+                self.rebuild_recent_menu();
             }
-            Err(e) => report_error(hwnd, &path.display().to_string(), &e),
+            Err(e) => {
+                report_error(hwnd, &path.display().to_string(), &e);
+                if !path.exists() {
+                    settings::update(|s| s.recent.retain(|r| r != &path));
+                    self.rebuild_recent_menu();
+                }
+            }
+        }
+    }
+
+    /// Refill 文件 → 最近打开 from the settings.
+    fn rebuild_recent_menu(&self) {
+        let m = self.recent_menu.get();
+        if m.is_null() {
+            return;
+        }
+        unsafe {
+            while GetMenuItemCount(m) > 0 {
+                DeleteMenu(m, 0, MF_BYPOSITION);
+            }
+            let recent = settings::get().recent;
+            if recent.is_empty() {
+                let w = wide(tr(S::MiRecentEmpty));
+                AppendMenuW(m, MF_STRING | MF_GRAYED, 0, w.as_ptr());
+                return;
+            }
+            for (i, p) in recent.iter().enumerate().take(settings::MAX_RECENT) {
+                let shown = shorten_path(&p.display().to_string(), 70).replace('&', "&&");
+                let label = if i < 9 { format!("&{} {shown}", i + 1) } else { format!("1&0 {shown}") };
+                let w = wide(&label);
+                AppendMenuW(m, MF_STRING, (ID_RECENT_FIRST + i as i32) as usize, w.as_ptr());
+            }
+            AppendMenuW(m, MF_SEPARATOR, 0, null());
+            let w = wide(tr(S::MiRecentClear));
+            AppendMenuW(m, MF_STRING, ID_RECENT_CLEAR as usize, w.as_ptr());
         }
     }
 
@@ -674,6 +762,7 @@ impl App {
                             3 => ext_of(ex.name()).cmp(&ext_of(ey.name())).then_with(|| ex.name().to_lowercase().cmp(&ey.name().to_lowercase())),
                             4 => ex.modified.cmp(&ey.modified),
                             5 => ex.crc32.cmp(&ey.crc32),
+                            6 => ex.attributes.cmp(&ey.attributes),
                             _ => ex.name().to_lowercase().cmp(&ey.name().to_lowercase()),
                         }
                     }
@@ -713,7 +802,7 @@ impl App {
         unsafe {
             let header = SendMessageW(self.list.get(), LVM_GETHEADER, 0, 0) as HWND;
             let (col, asc) = self.sort.get();
-            for i in 0..6 {
+            for i in 0..COLUMNS.len() {
                 let mut hd: HDITEMW = std::mem::zeroed();
                 hd.mask = HDI_FORMAT;
                 SendMessageW(header, HDM_GETITEMW, i, &mut hd as *mut _ as isize);
@@ -783,14 +872,11 @@ impl App {
                     let fo = &m.folders[f];
                     match c {
                         0 => fo.name.clone(),
-                        1 => {
-                            if fo.packed > 0 {
-                                format_size(fo.packed)
-                            } else {
-                                String::new()
-                            }
-                        }
-                        2 => format_size(fo.size),
+                        // Empty folders (no files anywhere below) show nothing in
+                        // both size columns rather than "0 B".
+                        1 if fo.packed > 0 => format_size(fo.packed),
+                        2 if fo.size > 0 || fo.packed > 0 => format_size(fo.size),
+                        1 | 2 => String::new(),
                         3 => {
                             let t = icon_for("", true, false).type_name;
                             if t.is_empty() {
@@ -823,11 +909,8 @@ impl App {
                         }
                         3 => icon_for(e.name(), false, false).type_name,
                         4 => format_time(e.modified),
-                        5 => {
-                            let crc = e.crc32.map(|c| format!("{c:08X}")).unwrap_or_default();
-                            let attr = e.attributes.map(attr_string).unwrap_or_default();
-                            format!("{crc}  {attr}").trim().to_string()
-                        }
+                        5 => e.crc32.map(|c| format!("{c:08X}")).unwrap_or_default(),
+                        6 => e.attributes.map(attr_string).unwrap_or_default(),
                         _ => String::new(),
                     }
                 }
@@ -907,11 +990,21 @@ impl App {
         self.model.borrow().is_some()
     }
 
-    /// mode 0 = dialog, 1 = here, 2 = smart sub-folder
+    /// mode 0 = dialog, 1 = here, 2 = smart sub-folder, 3 = per settings (toolbar)
     fn cmd_extract(&self, mode: u8) {
         if !self.ensure_archive() {
             return;
         }
+        let cfg = settings::get();
+        let mode = if mode == 3 {
+            match cfg.extract_target {
+                ExtractTarget::CurrentFolder => 1,
+                ExtractTarget::SubfolderSmart => 2,
+                ExtractTarget::Ask => 0,
+            }
+        } else {
+            mode
+        };
         let hwnd = self.hwnd.get();
         let (archive, parent, stem, count, smart) = {
             let model = self.model.borrow();
@@ -932,8 +1025,8 @@ impl App {
                 let pw = c.password.or_else(|| self.password.borrow().clone());
                 (c.dest, c.overwrite, c.open_after, pw)
             }
-            1 => (parent.clone(), OverwriteMode::Ask, false, self.password.borrow().clone()),
-            _ => (smart, OverwriteMode::Ask, false, self.password.borrow().clone()),
+            1 => (parent.clone(), cfg.overwrite.mode(), cfg.open_folder_after_extract, self.password.borrow().clone()),
+            _ => (smart, cfg.overwrite.mode(), cfg.open_folder_after_extract, self.password.borrow().clone()),
         };
         let strip = if selected_only { Some(self.current_folder_path()) } else { None };
         let sel = if selected_only { Some(selection) } else { None };
@@ -967,7 +1060,7 @@ impl App {
         if sources.is_empty() {
             return;
         }
-        if let Some(target) = create_archive_interactive(hwnd, &sources, ArchiveFormat::Zip) {
+        if let Some(target) = create_archive_interactive(hwnd, &sources, settings::get().format()) {
             self.open_archive(&target);
         }
     }
@@ -1150,6 +1243,16 @@ impl App {
             ID_EXTRACT => self.cmd_extract(0),
             ID_EXTRACT_HERE => self.cmd_extract(1),
             ID_EXTRACT_SMART => self.cmd_extract(2),
+            ID_EXTRACT_DEFAULT => self.cmd_extract(3),
+            ID_RECENT_CLEAR => {
+                settings::update(|s| s.recent.clear());
+                self.rebuild_recent_menu();
+            }
+            id if (ID_RECENT_FIRST..ID_RECENT_FIRST + settings::MAX_RECENT as i32).contains(&id) => {
+                if let Some(p) = settings::get().recent.get((id - ID_RECENT_FIRST) as usize).cloned() {
+                    self.open_archive(&p);
+                }
+            }
             ID_NEW => self.cmd_new(vec![]),
             ID_ADD => self.cmd_add(vec![]),
             ID_ADD_FOLDER => self.cmd_add_folder(),
@@ -1168,7 +1271,10 @@ impl App {
                 self.layout();
                 self.update_ui();
             }
-            ID_SETTINGS => settings_dialog(self.hwnd.get()),
+            ID_SETTINGS => {
+                settings_dialog(self.hwnd.get(), 0);
+                self.rebuild_recent_menu();
+            }
             ID_ABOUT => self.cmd_about(),
             ID_PROPERTIES => self.cmd_properties(),
             ID_OPEN_FOLDER => {
@@ -1181,7 +1287,8 @@ impl App {
     }
 
     fn on_drop(&self, files: Vec<PathBuf>) {
-        if files.is_empty() {
+        // Our own drag-out landing back on the window: ignore.
+        if files.is_empty() || files.iter().all(|f| f.starts_with(&self.temp_root)) {
             return;
         }
         let single_archive = files.len() == 1 && files[0].is_file() && detect_format(&files[0]).is_ok();
@@ -1222,6 +1329,7 @@ impl App {
                         self.rebuild_rows();
                     }
                     LVN_ITEMCHANGED => self.update_status(),
+                    LVN_BEGINDRAG => self.drag_out(),
                     NM_RCLICK => self.context_menu(),
                     _ => {}
                 }
@@ -1266,7 +1374,49 @@ impl App {
         }
     }
 
+    /// Drag selected entries out to Explorer: extract them to a private temp
+    /// folder first (with progress), then start an OLE drag of those files.
+    fn drag_out(&self) {
+        let selection = self.selected_paths();
+        if selection.is_empty() {
+            return;
+        }
+        let hwnd = self.hwnd.get();
+        let Some(archive) = self.model.borrow().as_ref().map(|m| m.info.path.clone()) else { return };
+        let n = self.temp_counter.get() + 1;
+        self.temp_counter.set(n);
+        let dest = self.temp_root.join(format!("drag-{n}"));
+        let strip = self.current_folder_path();
+        let mut pw = self.password.borrow().clone();
+        let a2 = archive.clone();
+        let result = with_password(hwnd, &archive, &mut pw, |pw| {
+            let (a3, d, sel, strip) = (a2.clone(), dest.clone(), selection.clone(), strip.clone());
+            run_task(hwnd, tr(S::GPreparingDrag), move |prog, _| {
+                let mut o = ExtractOptions::new().password(pw).overwrite(OverwriteMode::Overwrite);
+                o.selection = Some(sel);
+                o.strip_prefix = Some(strip);
+                extract(&a3, &d, &o, &prog)
+            })
+        });
+        match result {
+            Ok(_) => {
+                *self.password.borrow_mut() = pw;
+                // The top-level items of the temp folder are what was selected.
+                let mut items: Vec<PathBuf> = std::fs::read_dir(&dest).map(|rd| rd.filter_map(|e| e.ok().map(|e| e.path())).collect()).unwrap_or_default();
+                items.sort();
+                // If the button was released while extracting, don't start a drag
+                // that would drop wherever the cursor happens to be.
+                let held = unsafe { GetAsyncKeyState(VK_LBUTTON as i32) as u16 & 0x8000 != 0 };
+                if held && !items.is_empty() {
+                    dragout::drag_files(&items);
+                }
+            }
+            Err(e) => report_error(hwnd, "", &e),
+        }
+    }
+
     fn on_destroy(&self) {
+        self.save_window_state();
         let _ = std::fs::remove_dir_all(&self.temp_root);
         unsafe { PostQuitMessage(0) };
     }
@@ -1276,13 +1426,44 @@ fn ext_of(name: &str) -> String {
     name.rfind('.').map(|i| name[i + 1..].to_lowercase()).unwrap_or_default()
 }
 
-fn build_menu() -> HMENU {
+/// "C:\\very\\long\\path\\file.zip" → "C:\\very\\…\\file.zip" (at most `max` chars).
+fn shorten_path(p: &str, max: usize) -> String {
+    let chars: Vec<char> = p.chars().collect();
+    if chars.len() <= max {
+        return p.to_string();
+    }
+    let keep_tail = max * 2 / 3;
+    let keep_head = max.saturating_sub(keep_tail + 1);
+    let head: String = chars[..keep_head].iter().collect();
+    let tail: String = chars[chars.len() - keep_tail..].iter().collect();
+    format!("{head}…{tail}")
+}
+
+/// List columns: (title, default width at 96 DPI, alignment). The defaults sum
+/// to ~730 px so every column fits the default window without a scrollbar.
+const COLUMNS: [(S, i32, i32); 7] = [
+    (S::ColName, 200, LVCFMT_LEFT),
+    (S::ColPacked, 82, LVCFMT_RIGHT),
+    (S::ColSize, 82, LVCFMT_RIGHT),
+    (S::ColType, 105, LVCFMT_LEFT),
+    (S::ColModified, 120, LVCFMT_LEFT),
+    (S::ColCrc, 78, LVCFMT_LEFT),
+    (S::ColAttr, 56, LVCFMT_LEFT),
+];
+
+/// The menu bar and the (initially empty) 最近打开 submenu.
+fn build_menu() -> (HMENU, HMENU) {
     unsafe {
         let bar = CreateMenu();
+        let recent = CreatePopupMenu();
         let sub = |title: S, items: &[(i32, Option<S>)]| {
             let m = CreatePopupMenu();
             for (id, s) in items {
                 match s {
+                    None if *id == -1 => {
+                        let w = wide(tr(S::MiRecent));
+                        AppendMenuW(m, MF_POPUP, recent as usize, w.as_ptr());
+                    }
                     Some(s) => {
                         let w = wide(tr(*s));
                         AppendMenuW(m, MF_STRING, *id as usize, w.as_ptr());
@@ -1301,6 +1482,7 @@ fn build_menu() -> HMENU {
                 (ID_OPEN, Some(S::MiOpen)),
                 (ID_NEW, Some(S::MiNew)),
                 (ID_CLOSE, Some(S::MiClose)),
+                (-1, None), // 最近打开 submenu
                 (0, None),
                 (ID_OPEN_FOLDER, Some(S::MiOpenFolder)),
                 (ID_PROPERTIES, Some(S::MiProperties)),
@@ -1334,7 +1516,7 @@ fn build_menu() -> HMENU {
             ],
         );
         sub(S::MenuHelp, &[(ID_ABOUT, Some(S::MiAbout))]);
-        bar
+        (bar, recent)
     }
 }
 

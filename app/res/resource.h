@@ -5,7 +5,20 @@
 #define IDD_CREATE           102
 #define IDD_PASSWORD         103
 #define IDD_PROGRESS         104
-#define IDD_SETTINGS         105
+#define IDD_PAGE_GENERAL     106
+#define IDD_PAGE_EXTRACT     107
+#define IDD_PAGE_COMPRESS    108
+#define IDD_PAGE_SHELL       109
+#define IDD_CONFLICT         110
+
+// Toolbar icons
+#define IDI_TB_OPEN          201
+#define IDI_TB_EXTRACT       202
+#define IDI_TB_NEW           203
+#define IDI_TB_ADD           204
+#define IDI_TB_DELETE        205
+#define IDI_TB_TEST          206
+#define IDI_TB_VIEW          207
 
 // Extract dialog
 #define IDC_X_DEST_LABEL     1101
@@ -66,5 +79,51 @@
 #define IDC_S_ASSOC          1506
 #define IDC_S_UNASSOC        1507
 #define IDC_S_DEFAPPS        1508
-#define IDC_S_MORE           1509
 #define IDC_S_STATUS         1510
+#define IDC_S_STATE          1511
+
+// Settings: general page
+#define IDC_S_UI_GROUP       1601
+#define IDC_S_LANG_LABEL     1602
+#define IDC_S_LANG           1603
+#define IDC_S_LANG_NOTE      1604
+#define IDC_S_WIN_GROUP      1605
+#define IDC_S_REMEMBER       1606
+#define IDC_S_RECENT_GROUP   1607
+#define IDC_S_RECENT_TEXT    1608
+#define IDC_S_RECENT_CLEAR   1609
+#define IDC_S_FILE           1610
+
+// Settings: extract page
+#define IDC_S_XT_GROUP       1621
+#define IDC_S_XT_HERE        1622
+#define IDC_S_XT_SMART       1623
+#define IDC_S_XT_ASK         1624
+#define IDC_S_OW_GROUP       1625
+#define IDC_S_OW_ASK         1626
+#define IDC_S_OW_OVERWRITE   1627
+#define IDC_S_OW_SKIP        1628
+#define IDC_S_OW_RENAME      1629
+#define IDC_S_OPEN_AFTER     1630
+
+// Settings: compress page
+#define IDC_S_C_GROUP        1641
+#define IDC_S_C_FMT_LABEL    1642
+#define IDC_S_C_FMT          1643
+#define IDC_S_C_LEVEL_LABEL  1644
+#define IDC_S_C_LEVEL        1645
+#define IDC_S_C_NOTE         1646
+
+// Conflict dialog
+#define IDC_K_ICON           1701
+#define IDC_K_HEADING        1702
+#define IDC_K_NAME           1703
+#define IDC_K_PATH           1704
+#define IDC_K_OLD_GROUP      1705
+#define IDC_K_OLD            1706
+#define IDC_K_NEW_GROUP      1707
+#define IDC_K_NEW            1708
+#define IDC_K_ALL            1709
+#define IDC_K_OVERWRITE      1710
+#define IDC_K_SKIP           1711
+#define IDC_K_RENAME         1712

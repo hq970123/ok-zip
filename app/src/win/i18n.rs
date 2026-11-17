@@ -1,7 +1,7 @@
 //! UI strings: Simplified Chinese with an English fallback table.
 //!
-//! The language is Chinese when the Windows UI language is Chinese (or when
-//! `OKZIP_LANG=zh`), English otherwise (`OKZIP_LANG=en` forces it).
+//! Language resolution: `OKZIP_LANG=zh|en` (tests), then the 界面语言 setting
+//! (自动 / 中文 / English), then the Windows UI language (Chinese → zh).
 
 use std::sync::OnceLock;
 
@@ -11,6 +11,11 @@ pub fn is_zh() -> bool {
     *ZH.get_or_init(|| {
         if let Ok(v) = std::env::var("OKZIP_LANG") {
             return v.to_ascii_lowercase().starts_with("zh");
+        }
+        match super::settings::get().language {
+            super::settings::Language::Zh => return true,
+            super::settings::Language::En => return false,
+            super::settings::Language::Auto => {}
         }
         // PRIMARYLANGID(LANG_CHINESE) == 0x04
         let lang = unsafe { windows_sys::Win32::Globalization::GetUserDefaultUILanguage() };
@@ -59,6 +64,9 @@ strings! {
     MiOpenFolder => "打开所在文件夹(&L)", "Open containing fo&lder";
     MiProperties => "属性(&R)...", "P&roperties...";
     MiExit => "退出(&X)", "E&xit";
+    MiRecent => "最近打开(&R)", "&Recent archives";
+    MiRecentEmpty => "（无）", "(empty)";
+    MiRecentClear => "清除列表(&C)", "&Clear list";
     MiAdd => "添加文件(&A)...", "&Add files...";
     MiAddFolder => "添加文件夹(&F)...", "Add &folder...";
     MiDelete => "删除(&D)\tDel", "&Delete\tDel";
@@ -87,7 +95,8 @@ strings! {
     ColSize => "原始大小", "Size";
     ColType => "类型", "Type";
     ColModified => "修改时间", "Modified";
-    ColCrc => "CRC / 属性", "CRC / Attr";
+    ColCrc => "CRC", "CRC";
+    ColAttr => "属性", "Attr";
 
     StReady => "就绪 — 拖放压缩文件到此处打开，或拖放文件以新建压缩文件", "Ready — drop an archive here to open it, or files to compress them";
     StSummary => "{files} 个文件，{dirs} 个文件夹", "{files} files, {dirs} folders";
@@ -104,7 +113,7 @@ strings! {
     XTitleSel => "解压所选文件", "Extract selected files";
     XDest => "目标文件夹：", "Destination folder:";
     XBrowse => "浏览(&B)...", "&Browse...";
-    XSubfolder => "解压到子文件夹 \"{name}\\\"", "Extract into sub-folder \"{name}\\\"";
+    XSubfolder => "解压到子文件夹“{name}\\”", "Extract into sub-folder \"{name}\\\"";
     XOwGroup => "文件已存在时", "If a file already exists";
     XOwAsk => "询问", "Ask me";
     XOwOverwrite => "覆盖", "Overwrite";
@@ -159,31 +168,70 @@ strings! {
     GCancel => "取消", "Cancel";
     GCancelling => "正在取消…", "Cancelling…";
 
-    KText => "目标文件已存在：\n{path}\n\n是 = 覆盖    否 = 跳过    取消 = 停止\n按住 Shift 点击“是/否”可应用到后续所有文件。", "The file already exists:\n{path}\n\nYes = overwrite    No = skip    Cancel = stop\nHold Shift while clicking Yes/No to apply to all remaining files.";
+    KTitle => "确认文件替换", "Confirm file replace";
+    KHeading => "目标文件夹中已存在同名文件：", "The destination already contains this file:";
+    KExisting => "现有文件", "Existing file";
+    KNew => "压缩包中的文件", "File from the archive";
+    KInfo => "大小：{size}\n修改时间：{time}", "Size: {size}\nModified: {time}";
+    KNewer => "（较新）", " (newer)";
+    KUnknown => "未知", "unknown";
+    KOverwrite => "覆盖(&O)", "&Overwrite";
+    KSkip => "跳过(&S)", "&Skip";
+    KRename => "自动重命名(&R)", "&Rename";
+    KApplyAll => "对后续所有文件执行相同操作(&A)", "Do this for &all remaining conflicts";
 
     STitle => "设置", "Settings";
+    STabGeneral => "常规", "General";
+    STabExtract => "解压", "Extract";
+    STabCompress => "压缩", "Compress";
+    STabShell => "右键菜单与关联", "Context menu & associations";
+    SUiGroup => "界面", "Interface";
+    SLang => "界面语言：", "Language:";
+    SLangAuto => "自动（跟随系统）", "Automatic (follow Windows)";
+    SLangZh => "中文（简体）", "中文 (Chinese, Simplified)";
+    SLangEn => "English", "English";
+    SLangNote => "更改界面语言后，重新启动 OK Zip 生效。", "A language change takes effect after restarting OK Zip.";
+    SWinGroup => "窗口", "Window";
+    SRemember => "记住窗口大小、位置、列宽和分隔条位置", "Remember window size, position, column widths and splitter";
+    SRecentGroup => "最近打开的压缩文件", "Recent archives";
+    SRecentCount => "“文件 → 最近打开”中共有 {n} 项。", "{n} items in File → Recent archives.";
+    SRecentClear => "清除列表", "Clear list";
+    SFile => "设置文件：{path}", "Settings file: {path}";
+    SXTargetGroup => "工具栏“解压”按钮", "Toolbar \"Extract\" button";
+    SXTargetHere => "解压到当前文件夹", "Extract here (next to the archive)";
+    SXTargetSmart => "解压到同名文件夹（智能：已有单一根文件夹时不再嵌套）", "Extract to a folder named after the archive (smart)";
+    SXTargetAsk => "每次询问（显示“解压”对话框）", "Ask every time (show the Extract dialog)";
+    SXOpenAfter => "解压完成后打开目标文件夹", "Open the destination folder when done";
+    SCGroup => "新建压缩文件的默认设置", "Defaults for new archives";
+    SCNote => "“新建压缩文件”对话框和右键菜单“压缩为 ZIP / 7Z”都使用这里的压缩级别。", "Used by the New archive dialog and by the Explorer \"Compress to ZIP / 7Z\" commands.";
     SShellGroup => "资源管理器右键菜单", "Explorer context menu";
-    SShellText => "添加：用 OK Zip 打开、解压到当前文件夹、解压到 \"名称\\\"、压缩为 \"名称.zip\"、压缩为 7z。仅对当前用户生效，无需管理员权限。", "Adds: Open with OK Zip, Extract here, Extract to \"name\\\", Compress to \"name.zip\", Compress to 7z. Current user only; no admin rights needed.";
+    SShellText => "在右键菜单中添加“OK Zip”子菜单：打开、解压到当前文件夹、解压到同名文件夹、测试、压缩为 ZIP、压缩为 7Z。仅对当前用户生效，无需管理员权限。", "Adds an \"OK Zip\" submenu: Open, Extract here, Extract to folder, Test, Compress to ZIP, Compress to 7Z. Current user only; no admin rights needed.";
+    SShellOn => "当前状态：已注册", "Status: registered";
+    SShellOff => "当前状态：未注册", "Status: not registered";
     SReg => "注册右键菜单", "Register context menu";
     SUnreg => "取消注册", "Unregister";
     SAssocGroup => "文件关联", "File associations";
     SAssoc => "关联压缩文件类型", "Associate archive types";
     SUnassoc => "取消关联", "Remove associations";
     SDefApps => "打开 Windows“默认应用”设置…", "Open Windows Default apps…";
-    SMore => "更多设置（界面主题、解压默认值、编码等）将在后续版本中提供。", "More settings (theme, extraction defaults, encodings…) are coming in later versions.";
-    SClose => "关闭", "Close";
     SDoneReg => "✓ 已注册右键菜单。", "✓ Context menu registered.";
     SDoneUnreg => "✓ 已移除右键菜单。", "✓ Context menu removed.";
     SDoneAssoc => "✓ 已关联。Windows 10/11 可能需要在“默认应用”中确认。", "✓ Associated. Windows 10/11 may ask you to confirm in Default apps.";
     SDoneUnassoc => "✓ 已取消关联。", "✓ Associations removed.";
     SFailed => "操作失败：{err}", "Failed: {err}";
+    SOk => "确定", "OK";
+    SLangChanged => "界面语言已更改，重新启动 OK Zip 后生效。", "The new language takes effect the next time OK Zip starts.";
 
-    VOpen => "用 OK Zip 打开", "Open with OK Zip";
+    VMenu => "OK Zip", "OK Zip";
+    VOpen => "打开", "Open";
     VExtractHere => "解压到当前文件夹", "Extract here";
-    VExtractTo => "解压到 \"名称\\\"", "Extract to \"name\\\"";
-    VCompressZip => "压缩为 \"名称.zip\"", "Compress to \"name.zip\"";
-    VCompress7z => "压缩为 \"名称.7z\"", "Compress to \"name.7z\"";
+    VExtractTo => "解压到同名文件夹", "Extract to folder";
+    VTest => "测试", "Test";
+    VCompressZip => "压缩为 ZIP", "Compress to ZIP";
+    VCompress7z => "压缩为 7Z", "Compress to 7Z";
     VAssocDesc => "OK Zip 压缩文件", "OK Zip archive";
+
+    GPreparingDrag => "正在准备拖放的文件…", "Preparing dragged files…";
 
     MExtractDone => "解压完成：{n} 个文件 → {dest}", "Extracted {n} files → {dest}";
     MTestOk => "测试通过：{n} 个文件（{size}），未发现错误。", "Test passed: {n} files ({size}), no errors found.";

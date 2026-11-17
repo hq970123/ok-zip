@@ -1,21 +1,24 @@
 //! Runs archive operations on a worker thread behind a progress dialog with
 //! a working Cancel button, pumping the UI message loop meanwhile.
 
-use super::dialogs::password_dialog;
+use super::dialogs::{conflict_dialog, password_dialog, ConflictQuestion};
 use super::i18n::{error_text, tr, trf, S};
 use super::ids::*;
 use super::util::*;
-use okzip_core::{ConflictChoice, Error, Progress, ProgressInfo};
+use okzip_core::{ConflictChoice, ConflictInfo, Error, Progress, ProgressInfo};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use windows_sys::Win32::Foundation::*;
 use windows_sys::Win32::UI::Controls::*;
-use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_SHIFT};
 use windows_sys::Win32::UI::WindowsAndMessaging::*;
 
 const WM_TASK_DONE: u32 = WM_APP + 41;
+/// Sent (not posted) by the worker: lParam = *mut ConflictQuestion. The UI
+/// thread shows the conflict dialog and writes the answer back while the
+/// worker is blocked inside SendMessageW.
+const WM_ASK_CONFLICT: u32 = WM_APP + 42;
 const TIMER_SHOW: usize = 1;
 const TIMER_TICK: usize = 2;
 
@@ -82,6 +85,11 @@ unsafe extern "system" fn progress_proc(dlg: HWND, msg: u32, wp: WPARAM, lp: LPA
             }
             WM_CLOSE => {
                 SendMessageW(dlg, WM_COMMAND, IDCANCEL as usize, 0);
+                1
+            }
+            WM_ASK_CONFLICT => {
+                let q = &mut *(lp as *mut ConflictQuestion);
+                conflict_dialog(dlg, q);
                 1
             }
             _ => 0,
@@ -218,19 +226,27 @@ where
     }
 }
 
-/// Conflict prompt used for OverwriteMode::Ask (runs on the worker thread).
-pub fn conflict_prompt(owner: SendHwnd) -> Arc<okzip_core::ConflictCallback> {
-    Arc::new(move |path: &Path| {
-        let text = trf(S::KText, &[("path", &path.display().to_string())]);
-        let r = message_box(owner.get(), &text, MB_YESNOCANCEL | MB_ICONQUESTION | MB_DEFBUTTON1);
-        let shift = unsafe { (GetAsyncKeyState(VK_SHIFT as i32) as u16 & 0x8000) != 0 };
-        match r {
-            IDYES if shift => ConflictChoice::OverwriteAll,
-            IDYES => ConflictChoice::Overwrite,
-            IDNO if shift => ConflictChoice::SkipAll,
-            IDNO => ConflictChoice::Skip,
-            _ => ConflictChoice::Cancel,
-        }
+/// Conflict prompt used for OverwriteMode::Ask. Runs on the worker thread:
+/// it blocks in SendMessageW while the progress dialog's (UI) thread shows the
+/// overwrite dialog.
+pub fn conflict_prompt(dlg: SendHwnd) -> Arc<okzip_core::ConflictCallback> {
+    Arc::new(move |c: &ConflictInfo<'_>| {
+        let meta = std::fs::metadata(c.target).ok();
+        let old_modified = meta
+            .as_ref()
+            .and_then(|m| m.modified().ok())
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs() as i64);
+        let mut q = ConflictQuestion {
+            target: c.target.to_path_buf(),
+            old_size: meta.as_ref().map(|m| m.len()),
+            old_modified,
+            new_size: c.new_size,
+            new_modified: c.new_modified,
+            answer: ConflictChoice::Cancel,
+        };
+        unsafe { SendMessageW(dlg.get(), WM_ASK_CONFLICT, 0, &mut q as *mut ConflictQuestion as isize) };
+        q.answer
     })
 }
 

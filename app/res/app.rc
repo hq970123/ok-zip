@@ -7,11 +7,18 @@
 LANGUAGE LANG_NEUTRAL, SUBLANG_NEUTRAL
 
 IDI_APP ICON "okzip.ico"
+IDI_TB_OPEN    ICON "tb/open.ico"
+IDI_TB_EXTRACT ICON "tb/extract.ico"
+IDI_TB_NEW     ICON "tb/new.ico"
+IDI_TB_ADD     ICON "tb/add.ico"
+IDI_TB_DELETE  ICON "tb/delete.ico"
+IDI_TB_TEST    ICON "tb/test.ico"
+IDI_TB_VIEW    ICON "tb/view.ico"
 1 24 "app.manifest"
 
 VS_VERSION_INFO VERSIONINFO
- FILEVERSION 0,1,0,0
- PRODUCTVERSION 0,1,0,0
+ FILEVERSION 0,2,0,0
+ PRODUCTVERSION 0,2,0,0
  FILEFLAGSMASK 0x3fL
  FILEFLAGS 0x0L
  FILEOS 0x40004L
@@ -24,11 +31,11 @@ BEGIN
         BEGIN
             VALUE "CompanyName", "OK Zip"
             VALUE "FileDescription", "OK Zip Archiver"
-            VALUE "FileVersion", "0.1.0"
+            VALUE "FileVersion", "0.2.0"
             VALUE "InternalName", "okzip"
             VALUE "OriginalFilename", "okzip.exe"
             VALUE "ProductName", "OK Zip"
-            VALUE "ProductVersion", "0.1.0"
+            VALUE "ProductVersion", "0.2.0"
         END
     END
     BLOCK "VarFileInfo"
@@ -114,20 +121,90 @@ BEGIN
     PUSHBUTTON      "Cancel", IDCANCEL, 232, 71, 51, 14
 END
 
-IDD_SETTINGS DIALOGEX 0, 0, 290, 196
-STYLE DS_SETFONT | DS_SHELLFONT | DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
-CAPTION "Settings"
+// ---- Settings property sheet pages (260 x 176 DLU) ----
+
+IDD_PAGE_GENERAL DIALOGEX 0, 0, 260, 176
+STYLE DS_SETFONT | DS_SHELLFONT | WS_CHILD | WS_DISABLED | WS_CAPTION
+CAPTION "General"
 FONT 9, "Segoe UI", 400, 0, 0x1
 BEGIN
-    GROUPBOX        "Explorer integration", IDC_S_SHELL_GROUP, 7, 7, 276, 66
-    LTEXT           "", IDC_S_SHELL_TEXT, 14, 19, 262, 27
-    PUSHBUTTON      "Register context menu", IDC_S_REG_MENU, 14, 51, 126, 14
-    PUSHBUTTON      "Unregister", IDC_S_UNREG_MENU, 146, 51, 126, 14
-    GROUPBOX        "File associations", IDC_S_ASSOC_GROUP, 7, 79, 276, 66
-    PUSHBUTTON      "Associate", IDC_S_ASSOC, 14, 92, 126, 14
-    PUSHBUTTON      "Remove associations", IDC_S_UNASSOC, 146, 92, 126, 14
-    PUSHBUTTON      "Open Windows default apps...", IDC_S_DEFAPPS, 14, 112, 258, 14
-    LTEXT           "", IDC_S_STATUS, 14, 130, 262, 9
-    LTEXT           "", IDC_S_MORE, 7, 152, 276, 18
-    DEFPUSHBUTTON   "Close", IDOK, 232, 175, 51, 14
+    GROUPBOX        "Interface", IDC_S_UI_GROUP, 7, 7, 246, 50
+    LTEXT           "Language:", IDC_S_LANG_LABEL, 14, 22, 70, 9
+    COMBOBOX        IDC_S_LANG, 88, 20, 158, 80, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    LTEXT           "", IDC_S_LANG_NOTE, 14, 39, 232, 9
+    GROUPBOX        "Window", IDC_S_WIN_GROUP, 7, 63, 246, 30
+    AUTOCHECKBOX    "Remember window", IDC_S_REMEMBER, 14, 76, 232, 10, WS_TABSTOP
+    GROUPBOX        "Recent archives", IDC_S_RECENT_GROUP, 7, 99, 246, 34
+    LTEXT           "", IDC_S_RECENT_TEXT, 14, 115, 160, 9
+    PUSHBUTTON      "Clear list", IDC_S_RECENT_CLEAR, 180, 112, 66, 14
+    LTEXT           "", IDC_S_FILE, 7, 142, 246, 9, SS_PATHELLIPSIS | SS_NOPREFIX
+END
+
+IDD_PAGE_EXTRACT DIALOGEX 0, 0, 260, 176
+STYLE DS_SETFONT | DS_SHELLFONT | WS_CHILD | WS_DISABLED | WS_CAPTION
+CAPTION "Extract"
+FONT 9, "Segoe UI", 400, 0, 0x1
+BEGIN
+    GROUPBOX        "Toolbar Extract button", IDC_S_XT_GROUP, 7, 7, 246, 56
+    AUTORADIOBUTTON "Extract here", IDC_S_XT_HERE, 14, 20, 232, 10, WS_GROUP | WS_TABSTOP
+    AUTORADIOBUTTON "Extract to folder", IDC_S_XT_SMART, 14, 34, 232, 10
+    AUTORADIOBUTTON "Ask", IDC_S_XT_ASK, 14, 48, 232, 10
+    GROUPBOX        "If a file exists", IDC_S_OW_GROUP, 7, 69, 246, 70, WS_GROUP
+    AUTORADIOBUTTON "Ask", IDC_S_OW_ASK, 14, 82, 232, 10, WS_GROUP | WS_TABSTOP
+    AUTORADIOBUTTON "Overwrite", IDC_S_OW_OVERWRITE, 14, 96, 232, 10
+    AUTORADIOBUTTON "Skip", IDC_S_OW_SKIP, 14, 110, 232, 10
+    AUTORADIOBUTTON "Rename", IDC_S_OW_RENAME, 14, 124, 232, 10
+    AUTOCHECKBOX    "Open folder when done", IDC_S_OPEN_AFTER, 9, 148, 244, 10, WS_GROUP | WS_TABSTOP
+END
+
+IDD_PAGE_COMPRESS DIALOGEX 0, 0, 260, 176
+STYLE DS_SETFONT | DS_SHELLFONT | WS_CHILD | WS_DISABLED | WS_CAPTION
+CAPTION "Compress"
+FONT 9, "Segoe UI", 400, 0, 0x1
+BEGIN
+    GROUPBOX        "Defaults", IDC_S_C_GROUP, 7, 7, 246, 54
+    LTEXT           "Format:", IDC_S_C_FMT_LABEL, 14, 22, 70, 9
+    COMBOBOX        IDC_S_C_FMT, 88, 20, 158, 150, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    LTEXT           "Level:", IDC_S_C_LEVEL_LABEL, 14, 41, 70, 9
+    COMBOBOX        IDC_S_C_LEVEL, 88, 39, 158, 150, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    LTEXT           "", IDC_S_C_NOTE, 7, 69, 246, 27
+END
+
+IDD_PAGE_SHELL DIALOGEX 0, 0, 260, 176
+STYLE DS_SETFONT | DS_SHELLFONT | WS_CHILD | WS_DISABLED | WS_CAPTION
+CAPTION "Context menu"
+FONT 9, "Segoe UI", 400, 0, 0x1
+BEGIN
+    GROUPBOX        "Explorer context menu", IDC_S_SHELL_GROUP, 7, 7, 246, 84
+    LTEXT           "", IDC_S_SHELL_TEXT, 14, 19, 232, 36
+    LTEXT           "", IDC_S_STATE, 14, 57, 232, 9
+    PUSHBUTTON      "Register", IDC_S_REG_MENU, 14, 70, 112, 14
+    PUSHBUTTON      "Unregister", IDC_S_UNREG_MENU, 134, 70, 112, 14
+    GROUPBOX        "File associations", IDC_S_ASSOC_GROUP, 7, 97, 246, 54
+    PUSHBUTTON      "Associate", IDC_S_ASSOC, 14, 110, 112, 14
+    PUSHBUTTON      "Remove associations", IDC_S_UNASSOC, 134, 110, 112, 14
+    PUSHBUTTON      "Default apps...", IDC_S_DEFAPPS, 14, 130, 232, 14
+    LTEXT           "", IDC_S_STATUS, 7, 157, 246, 18
+END
+
+// ---- Overwrite conflict ----
+
+IDD_CONFLICT DIALOGEX 0, 0, 300, 142
+STYLE DS_SETFONT | DS_SHELLFONT | DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Confirm file replace"
+FONT 9, "Segoe UI", 400, 0, 0x1
+BEGIN
+    CONTROL         "", IDC_K_ICON, "Static", SS_ICON, 7, 7, 21, 20
+    LTEXT           "The destination already contains this file:", IDC_K_HEADING, 34, 7, 259, 9
+    LTEXT           "", IDC_K_NAME, 34, 19, 259, 11, SS_NOPREFIX | SS_ENDELLIPSIS
+    LTEXT           "", IDC_K_PATH, 34, 31, 259, 9, SS_NOPREFIX | SS_PATHELLIPSIS
+    GROUPBOX        "Existing file", IDC_K_OLD_GROUP, 7, 46, 140, 46
+    LTEXT           "", IDC_K_OLD, 14, 58, 128, 28, SS_NOPREFIX
+    GROUPBOX        "New file", IDC_K_NEW_GROUP, 153, 46, 140, 46
+    LTEXT           "", IDC_K_NEW, 160, 58, 128, 28, SS_NOPREFIX
+    AUTOCHECKBOX    "Apply to all", IDC_K_ALL, 7, 100, 286, 10, WS_TABSTOP
+    DEFPUSHBUTTON   "Overwrite", IDC_K_OVERWRITE, 7, 121, 68, 14
+    PUSHBUTTON      "Skip", IDC_K_SKIP, 79, 121, 68, 14
+    PUSHBUTTON      "Rename", IDC_K_RENAME, 151, 121, 68, 14
+    PUSHBUTTON      "Cancel", IDCANCEL, 225, 121, 68, 14
 END
