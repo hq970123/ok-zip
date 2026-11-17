@@ -19,6 +19,7 @@ public static class W {
   public delegate bool EnumProc(IntPtr h, IntPtr l);
   [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
   [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern IntPtr FindWindowW(string c, string t);
+  [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern IntPtr FindWindowExW(IntPtr p, IntPtr after, string c, string t);
   [DllImport("user32.dll")] public static extern bool EnumWindows(EnumProc p, IntPtr l);
   [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
   [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
@@ -146,6 +147,17 @@ try {
   Start-Sleep -Seconds 2
   FullScreen "00-desktop"
   Shot $main "01-main-zh"
+
+  # select the first folder in the tree so the list shows real files
+  $tree = [W]::FindWindowExW($main, [IntPtr]::Zero, "SysTreeView32", $null)
+  if ($tree -ne [IntPtr]::Zero) {
+    foreach ($vk in 0x28, 0x6B, 0x28) {   # Down, Numpad+ (expand), Down
+      [W]::PostMessageW($tree, 0x0100, [IntPtr]$vk, [IntPtr]::Zero) | Out-Null; Start-Sleep -Milliseconds 400
+    }
+    [W]::PostMessageW($tree, 0x0100, [IntPtr]0x26, [IntPtr]::Zero) | Out-Null   # back Up to 示例项目
+    Start-Sleep -Seconds 1
+    Shot $main "01b-main-zh-folder"
+  } else { Write-Warning "tree view not found" }
 
   [W]::PostMessageW($main, $WM_COMMAND, [IntPtr]40002, [IntPtr]::Zero) | Out-Null   # ID_EXTRACT
   $dlg = Dialog $p; Start-Sleep -Milliseconds 800

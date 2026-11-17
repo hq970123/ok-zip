@@ -122,7 +122,18 @@ pub fn scale(v: i32, dpi: u32) -> i32 {
     (v as i64 * dpi as i64 / 96) as i32
 }
 
-/// Segoe UI (the system message font) at the given DPI.
+/// UI typeface: Microsoft YaHei UI for the Chinese UI (so Simplified Chinese
+/// never falls back glyph-by-glyph to a Japanese font on non-Chinese Windows),
+/// Segoe UI otherwise.
+pub fn ui_face() -> &'static str {
+    if super::i18n::is_zh() {
+        "Microsoft YaHei UI"
+    } else {
+        "Segoe UI"
+    }
+}
+
+/// The UI font (system message font metrics, [`ui_face`] typeface) at the given DPI.
 pub fn create_ui_font(dpi: u32) -> HFONT {
     unsafe {
         let mut ncm: NONCLIENTMETRICSW = std::mem::zeroed();
@@ -139,7 +150,7 @@ pub fn create_ui_font(dpi: u32) -> HFONT {
             lf.lfHeight = -scale(12, dpi);
             lf.lfWeight = 400;
         }
-        let face = wide("Segoe UI");
+        let face = wide(ui_face());
         lf.lfFaceName = [0; 32];
         lf.lfFaceName[..face.len()].copy_from_slice(&face);
         CreateFontIndirectW(&lf)
@@ -404,5 +415,90 @@ impl SendHwnd {
     }
     pub fn get(self) -> HWND {
         self.0 as HWND
+    }
+}
+
+/// Load a DIALOGEX template from the resources with its FONT typeface
+/// replaced by [`ui_face`], for DialogBoxIndirectParamW / CreateDialogIndirectParamW.
+/// Returned as u32s so the buffer is DWORD-aligned. `None` if it can't be parsed.
+pub fn dialog_template(id: i32) -> Option<Vec<u32>> {
+    use windows_sys::Win32::System::LibraryLoader::{FindResourceW, LoadResource, LockResource, SizeofResource};
+    unsafe {
+        let hinst = hinstance();
+        let res = FindResourceW(hinst, make_int_resource(id), make_int_resource(5) /* RT_DIALOG */);
+        if res.is_null() {
+            return None;
+        }
+        let size = SizeofResource(hinst, res) as usize;
+        let data = LockResource(LoadResource(hinst, res)) as *const u16;
+        if data.is_null() || size < 26 {
+            return None;
+        }
+        let w = std::slice::from_raw_parts(data, size / 2);
+        if w[0] != 1 || w[1] != 0xFFFF {
+            return None; // not DIALOGEX
+        }
+        let style = (w[6] as u32) | ((w[7] as u32) << 16);
+        if style & DS_SETFONT as u32 == 0 {
+            return None;
+        }
+        let mut i = 13usize;
+        let skip_sz_or_ord = |i: &mut usize| -> Option<()> {
+            match *w.get(*i)? {
+                0 => *i += 1,
+                0xFFFF => *i += 2,
+                _ => {
+                    while *w.get(*i)? != 0 {
+                        *i += 1;
+                    }
+                    *i += 1;
+                }
+            }
+            Some(())
+        };
+        skip_sz_or_ord(&mut i)?; // menu
+        skip_sz_or_ord(&mut i)?; // class
+        while *w.get(i)? != 0 {
+            i += 1; // title
+        }
+        i += 1;
+        i += 3; // pointsize, weight, italic+charset
+        let face_start = i;
+        while *w.get(i)? != 0 {
+            i += 1;
+        }
+        i += 1;
+        let items = (i + 1) & !1; // first item is DWORD-aligned
+        let mut out: Vec<u16> = w[..face_start].to_vec();
+        out.extend(ui_face().encode_utf16());
+        out.push(0);
+        if out.len() % 2 == 1 {
+            out.push(0);
+        }
+        out.extend_from_slice(w.get(items..)?);
+        if out.len() % 2 == 1 {
+            out.push(0);
+        }
+        Some(out.chunks(2).map(|c| c[0] as u32 | ((c[1] as u32) << 16)).collect())
+    }
+}
+
+/// Modal dialog from a resource template, using the UI typeface.
+pub fn dialog_box_res(owner: HWND, id: i32, proc_: DLGPROC, param: isize) -> isize {
+    unsafe {
+        match dialog_template(id) {
+            Some(t) => DialogBoxIndirectParamW(hinstance(), t.as_ptr() as *const DLGTEMPLATE, owner, proc_, param),
+            None => DialogBoxParamW(hinstance(), make_int_resource(id), owner, proc_, param),
+        }
+    }
+}
+
+/// Modeless dialog from a resource template, using the UI typeface.
+pub fn create_dialog_res(owner: HWND, id: i32, proc_: DLGPROC, param: isize) -> HWND {
+    unsafe {
+        match dialog_template(id) {
+            Some(t) => CreateDialogIndirectParamW(hinstance(), t.as_ptr() as *const DLGTEMPLATE, owner, proc_, param),
+            None => CreateDialogParamW(hinstance(), make_int_resource(id), owner, proc_, param),
+        }
     }
 }

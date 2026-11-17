@@ -398,12 +398,13 @@ impl App {
     fn add_columns(&self) {
         let dpi = self.dpi.get();
         let cols = [
-            (S::ColName, 280, LVCFMT_LEFT),
-            (S::ColPacked, 100, LVCFMT_RIGHT),
-            (S::ColSize, 100, LVCFMT_RIGHT),
-            (S::ColType, 140, LVCFMT_LEFT),
-            (S::ColModified, 130, LVCFMT_LEFT),
-            (S::ColCrc, 120, LVCFMT_LEFT),
+            // Sums to ~700 px so all columns fit the default window without a scrollbar.
+            (S::ColName, 220, LVCFMT_LEFT),
+            (S::ColPacked, 85, LVCFMT_RIGHT),
+            (S::ColSize, 85, LVCFMT_RIGHT),
+            (S::ColType, 110, LVCFMT_LEFT),
+            (S::ColModified, 125, LVCFMT_LEFT),
+            (S::ColCrc, 75, LVCFMT_LEFT),
         ];
         for (i, (s, w, fmt)) in cols.iter().enumerate() {
             let mut text = wide(tr(*s));

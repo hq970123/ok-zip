@@ -30,7 +30,7 @@ fn store<T>(dlg: HWND, lp: LPARAM) -> &'static mut T {
 }
 
 fn run_modal<T>(owner: HWND, id: i32, state: &mut T, proc_: DLGPROC) -> bool {
-    unsafe { DialogBoxParamW(hinstance(), make_int_resource(id), owner, proc_, state as *mut T as isize) == IDOK as isize }
+    dialog_box_res(owner, id, proc_, state as *mut T as isize) == IDOK as isize
 }
 
 fn combo_add(dlg: HWND, id: i32, text: &str) {
@@ -483,5 +483,5 @@ unsafe extern "system" fn settings_proc(dlg: HWND, msg: u32, wp: WPARAM, _lp: LP
 }
 
 pub fn settings_dialog(owner: HWND) {
-    unsafe { DialogBoxParamW(hinstance(), make_int_resource(IDD_SETTINGS), owner, Some(settings_proc), 0) };
+    dialog_box_res(owner, IDD_SETTINGS, Some(settings_proc), 0);
 }

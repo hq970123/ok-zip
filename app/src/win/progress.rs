@@ -129,9 +129,7 @@ where
         start: Instant::now(),
         show_immediately: owner.is_null(),
     });
-    let dlg = unsafe {
-        CreateDialogParamW(hinstance(), make_int_resource(IDD_PROGRESS), owner, Some(progress_proc), &*ctx as *const DlgCtx as isize)
-    };
+    let dlg = create_dialog_res(owner, IDD_PROGRESS, Some(progress_proc), &*ctx as *const DlgCtx as isize);
     let dlg_send = SendHwnd::new(dlg);
     if !owner.is_null() {
         enable(owner, false);
