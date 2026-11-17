@@ -399,12 +399,12 @@ impl App {
         let dpi = self.dpi.get();
         let cols = [
             // Sums to ~700 px so all columns fit the default window without a scrollbar.
-            (S::ColName, 220, LVCFMT_LEFT),
+            (S::ColName, 205, LVCFMT_LEFT),
             (S::ColPacked, 85, LVCFMT_RIGHT),
             (S::ColSize, 85, LVCFMT_RIGHT),
             (S::ColType, 110, LVCFMT_LEFT),
             (S::ColModified, 125, LVCFMT_LEFT),
-            (S::ColCrc, 75, LVCFMT_LEFT),
+            (S::ColCrc, 90, LVCFMT_LEFT),
         ];
         for (i, (s, w, fmt)) in cols.iter().enumerate() {
             let mut text = wide(tr(*s));
