@@ -153,7 +153,6 @@ pub struct App {
     sort: Cell<(i32, bool)>,
     temp_root: PathBuf,
     temp_counter: Cell<u32>,
-    row_images: Cell<HIMAGELIST>,
     home_hot: Cell<i32>,
     home_tracking: Cell<bool>,
     was_home: Cell<bool>,
@@ -212,7 +211,6 @@ pub fn create_main_window(initial: Option<PathBuf>) -> HWND {
             sort: Cell::new((0, true)),
             temp_root: std::env::temp_dir().join(format!("OKZip-{}", std::process::id())),
             temp_counter: Cell::new(0),
-            row_images: Cell::new(0),
             home_hot: Cell::new(-1),
             home_tracking: Cell::new(false),
             was_home: Cell::new(true),
@@ -365,16 +363,9 @@ impl App {
         }
         band::set_font(self.toolbar.get(), f, self.dpi.get());
         unsafe {
-            // Taller, Bandizip-like rows: the list's row height follows the
-            // tallest image list, so give it an invisible 1-px state list.
+            // Taller, Bandizip-like rows in the folder tree.
             let tree = self.tree.get();
             SendMessageW(tree, TVM_SETITEMHEIGHT, scale(24, self.dpi.get()) as usize, 0);
-            let il = ImageList_Create(1, scale(24, self.dpi.get()), ILC_COLOR32, 1, 0);
-            SendMessageW(self.list.get(), LVM_SETIMAGELIST, LVSIL_STATE as usize, il as isize);
-            let old = self.row_images.replace(il);
-            if old != 0 {
-                ImageList_Destroy(old);
-            }
         }
         if !old.is_null() {
             unsafe { DeleteObject(old as HGDIOBJ) };
@@ -460,8 +451,13 @@ impl App {
             let mut src: RECT = std::mem::zeroed();
             GetWindowRect(st, &mut src);
             let sh = src.bottom - src.top;
-            let parts = [scale(300, dpi), scale(560, dpi), scale(700, dpi), -1];
-            SendMessageW(st, SB_SETPARTS, parts.len(), parts.as_ptr() as isize);
+            if home {
+                let parts = [-1i32];
+                SendMessageW(st, SB_SETPARTS, 1, parts.as_ptr() as isize);
+            } else {
+                let parts = [scale(300, dpi), scale(560, dpi), scale(700, dpi), -1];
+                SendMessageW(st, SB_SETPARTS, parts.len(), parts.as_ptr() as isize);
+            }
             let w = rc.right;
             let h = (rc.bottom - top - sh).max(0);
             if home {
