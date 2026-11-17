@@ -29,6 +29,7 @@ public static class W {
   [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
   [DllImport("user32.dll")] public static extern bool BringWindowToTop(IntPtr h);
   [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int c);
+  [DllImport("user32.dll")] public static extern IntPtr SendMessageW(IntPtr h, uint m, IntPtr w, IntPtr l);
   [DllImport("user32.dll")] public static extern bool PostMessageW(IntPtr h, uint m, IntPtr w, IntPtr l);
   [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr h, IntPtr hdc, uint f);
   [DllImport("user32.dll")] public static extern void keybd_event(byte vk, byte scan, uint flags, UIntPtr extra);
@@ -151,10 +152,12 @@ try {
   # select the first folder in the tree so the list shows real files
   $tree = [W]::FindWindowExW($main, [IntPtr]::Zero, "SysTreeView32", $null)
   if ($tree -ne [IntPtr]::Zero) {
-    foreach ($vk in 0x28, 0x6B, 0x28) {   # Down, Numpad+ (expand), Down
-      [W]::PostMessageW($tree, 0x0100, [IntPtr]$vk, [IntPtr]::Zero) | Out-Null; Start-Sleep -Milliseconds 400
-    }
-    [W]::PostMessageW($tree, 0x0100, [IntPtr]0x26, [IntPtr]::Zero) | Out-Null   # back Up to 示例项目
+    # TVM_GETNEXTITEM(TVGN_ROOT) -> TVM_GETNEXTITEM(TVGN_CHILD) -> TVM_EXPAND + TVM_SELECTITEM(TVGN_CARET)
+    $root = [W]::SendMessageW($tree, 0x110A, [IntPtr]0, [IntPtr]::Zero)
+    $child = [W]::SendMessageW($tree, 0x110A, [IntPtr]4, $root)
+    Write-Host "tree root=$root child=$child"
+    [W]::SendMessageW($tree, 0x1102, [IntPtr]2, $child) | Out-Null
+    [W]::SendMessageW($tree, 0x110B, [IntPtr]9, $child) | Out-Null
     Start-Sleep -Seconds 1
     Shot $main "01b-main-zh-folder"
   } else { Write-Warning "tree view not found" }
