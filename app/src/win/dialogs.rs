@@ -639,8 +639,14 @@ unsafe extern "system" fn page_compress(dlg: HWND, msg: u32, _wp: WPARAM, lp: LP
 }
 
 fn shell_state(dlg: HWND) {
-    let on = registry::context_menu_registered();
-    set_dlg_text(dlg, IDC_S_STATE, tr(if on { S::SShellOn } else { S::SShellOff }));
+    let s = if !registry::context_menu_registered() {
+        S::SShellOff
+    } else if registry::serving_package().is_some() {
+        S::SShellOnPkg
+    } else {
+        S::SShellOn
+    };
+    set_dlg_text(dlg, IDC_S_STATE, tr(s));
 }
 
 unsafe extern "system" fn page_shell(dlg: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> isize {

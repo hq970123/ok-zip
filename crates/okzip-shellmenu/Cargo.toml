@@ -1,0 +1,16 @@
+[package]
+name = "okzip-shellmenu"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "OK Zip's file-manager right-click menu: one definition for Windows (classic + Windows 11), and later macOS Finder"
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "okzip-shellmenu"
+path = "src/bin/okzip-shellmenu.rs"
+
+[dependencies]
+context-menu = "=0.2.1"

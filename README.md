@@ -45,7 +45,10 @@
   - 压缩：新建压缩文件的默认格式与压缩级别（右键「压缩为 ZIP / 7Z」也使用该级别）；
   - 右键菜单与关联：注册/取消资源管理器右键菜单、关联压缩文件类型、打开 Windows「默认应用」。
 - 文件 → 最近打开：最近 10 个压缩文件。
-- **资源管理器右键菜单**（仅当前用户，HKCU，无需管理员，无 Shell 扩展 DLL）：通过 `ExtendedSubCommandsKey` 显示为一个「OK Zip」级联子菜单——压缩文件上为「打开、解压到当前文件夹、解压到同名文件夹、测试、压缩为 ZIP、压缩为 7Z」，其他文件和文件夹上为「压缩为 ZIP、压缩为 7Z」。多选文件压缩时，资源管理器为每个文件启动一个进程，OK Zip 用命名互斥量 + 临时请求文件把它们汇总到第一个进程，最终只生成**一个**压缩包。
+- **资源管理器右键菜单**（仅当前用户）：菜单只在 `crates/okzip-shellmenu` 里定义一次，由 [context-menu-rs](https://github.com/hivepaas/context-menu-rs)（MIT）安装——压缩文件上为「打开、解压到当前文件夹、解压到同名文件夹、测试、压缩为 ZIP、压缩为 7Z」，其他文件和文件夹上为「压缩为 ZIP、压缩为 7Z」，名称随界面语言。
+  - **Windows 11 一级菜单**：安装包注册 OK Zip 的稀疏包（package with external location），由它声明 `context-menu-ok-zip.dll`（context-menu-rs 预编译的 `IExplorerCommand` 扩展，v0.2.1，SHA-256 固定）。此时不写经典注册表动词，「显示更多选项」里也由同一个扩展提供，避免重复。
+  - **Windows 10 / 未注册稀疏包时**：写入 HKCU 经典动词（级联「OK Zip」子菜单），Windows 11 上在「显示更多选项」里。资源管理器会为每个文件启动一个进程，OK Zip 用 `--gather` 汇总成**一个**压缩包；Windows 11 一级菜单则一次传入全部路径。
+  - OK Zip 启动时若发现菜单已安装但过期（程序移动、语言改变、稀疏包增删），会自动重写。
 - 简体中文界面（「自动」时系统语言为中文用中文，否则英文；环境变量 `OKZIP_LANG=zh|en` 优先）。
 - 字体：系统装有 Microsoft YaHei UI（Windows 8 及以上默认自带）时，中英文界面都使用它，英文界面中的中文文件名也不会再混用日文字形；否则使用 Segoe UI。
 - 每显示器 DPI 感知（PerMonitorV2）、通用控件 v6、内嵌图标与版本信息。
@@ -86,10 +89,12 @@ ok-zip/
 ├─ crates/okzip-core/     跨平台压缩引擎（格式识别、列表/解压/测试/新建/编辑、分卷、进度与取消）
 │  └─ tests/roundtrip.rs  每种可写格式的往返测试（含密码、分卷、编辑、取消、损坏检测）
 ├─ crates/okzip-cli/      命令行前端
+├─ crates/okzip-shellmenu/ 右键菜单的跨平台定义（context-menu-rs）+ 稀疏包 AppxManifest 生成（`okzip-shellmenu manifest`）
 ├─ app/                   Windows 原生界面（windows-sys + Win32 通用控件）
 │  ├─ res/                app.rc（对话框模板、图标、清单、版本信息）、app.manifest、okzip.ico
 │  └─ src/win/            主窗口、对话框、进度、注册表、多语言字符串
-├─ installer/okzip.iss    Inno Setup 安装脚本
+├─ installer/okzip.iss    Inno Setup 安装脚本（含稀疏包注册/注销、测试证书导入）
+├─ installer/sparse/      稀疏包 logo（安装到 {app}\assets）
 └─ .github/workflows/     CI：Linux 测试引擎；Windows 构建、打包便携版 + 安装包并发布 Release
 ```
 
@@ -126,12 +131,26 @@ cargo build -p okzip --release
 
 1. 在 Ubuntu 上运行 `okzip-core` 全部测试（含 RAR 样本测试），并以 `x86_64-pc-windows-gnu` 交叉编译 Windows 界面做链接检查；
 2. 在 `windows-latest` 上运行 `okzip-core` 测试，并以 `x86_64-pc-windows-msvc` 构建 Release；
-3. 打包 `okzip-portable-x64.zip`（便携版）与 `okzip-setup-x64.exe`（Inno Setup 安装包，英文 / 简体中文向导，按用户安装，可选右键菜单与文件关联；版本号 `0.2.<运行编号>`）；
+3. 打包 `okzip-portable-x64.zip`（便携版）与 `okzip-setup-x64.exe`（Inno Setup 安装包，英文 / 简体中文向导，按用户安装，可选右键菜单与文件关联；版本号 `0.3.<运行编号>`；含 Windows 11 稀疏包）；
 4. 发布 GitHub Release，标签为 `build-<运行编号>`。
 
 另有 `screenshots` 工作流：在 `windows-latest` 上运行 `okzip.exe` 做界面冒烟测试（主窗口、各对话框、设置的四个选项卡、文件替换对话框、设置持久化、右键菜单注册/注销、多选汇总压缩），并上传 PNG 截图产物 `screenshots`。
 
 安装包的简体中文翻译 `installer/ChineseSimplified.isl` 取自 Inno Setup 官方仓库（Inno Setup License，见 `installer/ChineseSimplified.LICENSE.txt`）。
+
+### Windows 11 右键菜单（稀疏包与签名）
+
+- CI（`.github/scripts/package-sparse.ps1`）下载 context-menu-rs 的 `context-menu-windows-x86_64.dll` 并校验 SHA-256，重命名为 `context-menu-ok-zip.dll`；用 `okzip-shellmenu manifest` 生成 `AppxManifest.xml`，`makeappx pack /nv` + `signtool sign` 得到 `okzip-shellmenu.msix`。
+- **签名**：未配置证书时，每次构建生成自签证书 `CN=OK Zip Dev`，并把公钥 `okzip-dev.cer` 一起打包。安装包会把它导入「本地计算机 › 受信任人（TrustedPeople）」——这一步需要**一次管理员确认（UAC）**，之后 `Add-AppxPackage -ExternalLocation {app}` 以当前用户注册稀疏包。自签证书只适合测试：它会被这台电脑信任为 MSIX 发布者。
+  - 不想导入证书：可在「设置 › 系统 › 开发者选项」打开开发者模式后用 `Add-AppxPackage -Register` 注册；或不勾选该任务，仍使用「显示更多选项」里的经典菜单。
+  - 手动移除测试证书：管理员命令行 `certutil -delstore TrustedPeople "OK Zip Dev"`。
+- **换正式证书**：在仓库 Secrets 里设置 `OKZIP_SIGN_PFX`（PFX 的 base64）和 `OKZIP_SIGN_PASSWORD`，清单的 Publisher 会自动等于证书主题；若证书由受信任的 CA 签发，再设 `OKZIP_SIGN_TRUSTED=1`，安装包就不再附带和导入 `.cer`（无 UAC）。上架微软商店时由商店重新签名，同样不需要 `.cer`。
+- 卸载时先 `Remove-AppxPackage`，再 `okzip --unregister-shell` 删除菜单定义与经典动词。
+- `screenshots` 工作流里的 `test-win11-menu.ps1` 会验证：稀疏包注册成功、菜单改由稀疏包提供且经典动词被移除、像资源管理器一样激活 COM 类并读取各项标题/状态、调用「解压到当前文件夹」真的解压成功、DLL 被 dllhost 加载、移除稀疏包后经典菜单恢复。
+
+### macOS（规划）
+
+`okzip-shellmenu::menu()` 不含任何 Windows 专用代码，`Icons::macos()` 已给出 SF Symbols；将来的 AppKit 版用同一份定义，配合 context-menu-rs 的 Finder Sync 扩展（`context_menu::macos::FinderExtension`）。本版本不构建 macOS。
 
 ## 路线图
 
@@ -146,7 +165,8 @@ cargo build -p okzip --release
 
 计划中：
 - [ ] 解压/压缩更多格式：ISO、CAB、LZH、ZIPX(LZMA/PPMd 写入)、WIM 等
-- [ ] 右键菜单显示真实名称「解压到“xxx\”」与图标（需要 IExplorerCommand / Shell 扩展 DLL）
+- [x] Windows 11 一级右键菜单（context-menu-rs IExplorerCommand DLL + 稀疏包），经典菜单兜底
+- [ ] 右键菜单显示动态名称「解压到“xxx\”」（context-menu-rs 目前只支持固定标签）
 - [ ] 拖出时延迟渲染（拖放完成后再解压，大文件不必先等待）
 - [ ] 原地重命名、新建文件夹、注释编辑、压缩包内搜索
 - [ ] 解压后自动删除压缩包、按文件夹分别压缩、自解压（SFX）
@@ -164,6 +184,7 @@ MIT（见 `LICENSE`）。
 
 第三方组件：
 
+- 右键菜单使用 [`context-menu`](https://github.com/hivepaas/context-menu-rs)（MIT，Copyright (c) 2026 HivePaaS）及其发布的 `context-menu-windows` DLL（MIT）。
 - RAR 解压使用 [`rars`](https://github.com/bitplane/rars)（Apache License 2.0），为 RAR 格式的独立 Rust 实现，不包含 UnRAR 源码，因此不再受 UnRAR 许可限制。
 - 其余依赖（`zip`、`sevenz-rust2`、`tar`、`flate2`、`bzip2`、`liblzma`、`zstd` 等）均为 MIT / Apache-2.0 / BSD 类许可。
 - 测试样本：`ssokolow/rar-test-files`（CC0 1.0）与 `rars` 测试用例（Apache-2.0），仅用于测试，不随程序发布。

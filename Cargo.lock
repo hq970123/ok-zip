@@ -134,6 +134,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "context-menu"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b1ba54d5449dda8ebf6524315f8f6d5dd59bf03eec06550dfe65caf33863df4f"
+dependencies = [
+ "winreg",
+]
+
+[[package]]
 name = "core_detect"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -499,6 +508,7 @@ version = "0.2.0"
 dependencies = [
  "embed-resource",
  "okzip-core",
+ "okzip-shellmenu",
  "serde",
  "serde_json",
  "windows-sys",
@@ -530,6 +540,13 @@ dependencies = [
  "walkdir",
  "zip",
  "zstd",
+]
+
+[[package]]
+name = "okzip-shellmenu"
+version = "0.2.0"
+dependencies = [
+ "context-menu",
 ]
 
 [[package]]

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/okzip-core", "crates/okzip-cli", "app"]
+members = ["crates/okzip-core", "crates/okzip-cli", "crates/okzip-shellmenu", "app"]
 
 [workspace.package]
 version = "0.2.0"

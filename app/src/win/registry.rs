@@ -78,27 +78,6 @@ const MENU_VERB: &str = "OKZip";
 const ARCHIVE_MENU: &str = "OKZip.ArchiveMenu";
 const COMPRESS_MENU: &str = "OKZip.CompressMenu";
 
-/// ECF_SEPARATORBEFORE
-const SEPARATOR_BEFORE: u32 = 0x20;
-
-fn set_dword(path: &str, name: &str, value: u32) -> R {
-    unsafe {
-        let p = wide(&format!(r"{CLASSES}\{path}"));
-        let mut key: HKEY = null_mut();
-        let rc = RegCreateKeyExW(HKEY_CURRENT_USER, p.as_ptr(), 0, null(), REG_OPTION_NON_VOLATILE, KEY_WRITE, null(), &mut key, null_mut());
-        if rc != ERROR_SUCCESS {
-            return Err(format!("RegCreateKeyEx({path}) = {rc}"));
-        }
-        let n = wide(name);
-        let rc = RegSetValueExW(key, n.as_ptr(), 0, REG_DWORD, &value as *const u32 as *const u8, 4);
-        RegCloseKey(key);
-        if rc != ERROR_SUCCESS {
-            return Err(format!("RegSetValueEx({path}) = {rc}"));
-        }
-    }
-    Ok(())
-}
-
 fn key_exists(path: &str) -> bool {
     unsafe {
         let p = wide(&format!(r"{CLASSES}\{path}"));
@@ -111,75 +90,6 @@ fn key_exists(path: &str) -> bool {
             false
         }
     }
-}
-
-struct Verb {
-    key: &'static str,
-    label: S,
-    args: &'static str,
-    separator: bool,
-}
-
-const fn verb(key: &'static str, label: S, args: &'static str, separator: bool) -> Verb {
-    Verb { key, label, args, separator }
-}
-
-/// Archive files: the full submenu. `--gather` lets one process collect every
-/// file of a multi-selection (Explorer starts one process per item).
-const ARCHIVE_VERBS: [Verb; 6] = [
-    verb("01Open", S::VOpen, "\"%1\"", false),
-    verb("02ExtractHere", S::VExtractHere, "x \"%1\"", false),
-    verb("03ExtractSmart", S::VExtractTo, "xs \"%1\"", false),
-    verb("04Test", S::VTest, "t \"%1\"", false),
-    verb("05CompressZip", S::VCompressZip, "a --format zip --quick --gather \"%1\"", true),
-    verb("06Compress7z", S::VCompress7z, "a --format 7z --quick --gather \"%1\"", false),
-];
-/// Any other file or folder: compress only.
-const COMPRESS_VERBS: [Verb; 2] = [
-    verb("01CompressZip", S::VCompressZip, "a --format zip --quick --gather \"%1\"", false),
-    verb("02Compress7z", S::VCompress7z, "a --format 7z --quick --gather \"%1\"", false),
-];
-
-fn icon_value() -> String {
-    format!("\"{}\",0", exe())
-}
-
-/// `<base>\shell\OKZip` = cascading "OK Zip" entry pointing at `submenu`.
-fn add_cascade(base: &str, submenu: &str, applies_to: Option<&str>) -> R {
-    let key = format!(r"{base}\shell\{MENU_VERB}");
-    delete_tree(&key);
-    set_value(&key, Some("MUIVerb"), tr(S::VMenu))?;
-    set_value(&key, Some("Icon"), &icon_value())?;
-    set_value(&key, Some("ExtendedSubCommandsKey"), submenu)?;
-    // Keep the entry visible for any number of selected items (the default
-    // "Document" model hides static verbs above 15 items).
-    set_value(&key, Some("MultiSelectModel"), "Player")?;
-    if let Some(a) = applies_to {
-        set_value(&key, Some("AppliesTo"), a)?;
-    }
-    Ok(())
-}
-
-fn add_submenu(submenu: &str, verbs: &[Verb]) -> R {
-    delete_tree(submenu);
-    for v in verbs {
-        let key = format!(r"{submenu}\shell\{}", v.key);
-        set_value(&key, Some("MUIVerb"), tr(v.label))?;
-        set_value(&key, Some("Icon"), &icon_value())?;
-        set_value(&key, Some("MultiSelectModel"), "Player")?;
-        if v.separator {
-            set_dword(&key, "CommandFlags", SEPARATOR_BEFORE)?;
-        }
-        set_value(&format!(r"{key}\command"), None, &format!("\"{}\" {}", exe(), v.args))?;
-    }
-    Ok(())
-}
-
-/// AQS condition matching every file that is NOT one of our archive types, so
-/// archives show exactly one "OK Zip" submenu (the archive one).
-fn non_archive_condition() -> String {
-    let parts: Vec<String> = ASSOCIATED_EXTENSIONS.iter().map(|e| format!("System.FileExtension:=.{e}")).collect();
-    format!("NOT ({})", parts.join(" OR "))
 }
 
 fn remove_legacy_verbs() {
@@ -195,23 +105,24 @@ fn remove_legacy_verbs() {
     }
 }
 
-/// One cascading "OK Zip" submenu in the Explorer context menu (per user):
-/// archives get 打开 / 解压到当前文件夹 / 解压到同名文件夹 / 测试 / 压缩为 ZIP / 压缩为 7Z,
-/// other files and folders get the two compress commands.
-pub fn register_context_menu() -> R {
-    remove_legacy_verbs();
-    add_submenu(ARCHIVE_MENU, &ARCHIVE_VERBS)?;
-    add_submenu(COMPRESS_MENU, &COMPRESS_VERBS)?;
-    for ext in ASSOCIATED_EXTENSIONS {
-        add_cascade(&format!(r"SystemFileAssociations\.{ext}"), ARCHIVE_MENU, None)?;
-    }
-    add_cascade("*", COMPRESS_MENU, Some(&non_archive_condition()))?;
-    add_cascade("Directory", COMPRESS_MENU, None)?;
-    notify();
-    Ok(())
+/// The menu as `okzip-shellmenu` describes it, with labels in the UI
+/// language and icons from okzip.exe.
+pub fn shell_menu() -> okzip_shellmenu::context_menu::Menu {
+    let exe = exe_path();
+    let labels = okzip_shellmenu::Labels {
+        title: tr(S::VMenu).into(),
+        open: tr(S::VOpen).into(),
+        extract_here: tr(S::VExtractHere).into(),
+        extract_smart: tr(S::VExtractTo).into(),
+        test: tr(S::VTest).into(),
+        compress_zip: tr(S::VCompressZip).into(),
+        compress_7z: tr(S::VCompress7z).into(),
+    };
+    okzip_shellmenu::menu(&exe, &labels, &okzip_shellmenu::Icons::windows_exe(&exe), ASSOCIATED_EXTENSIONS)
 }
 
-pub fn unregister_context_menu() -> R {
+/// Remove the v0.1/v0.2 hand-written verbs (now written by context-menu-rs).
+fn remove_own_verbs() {
     remove_legacy_verbs();
     for ext in ASSOCIATED_EXTENSIONS {
         delete_tree(&format!(r"SystemFileAssociations\.{ext}\shell\{MENU_VERB}"));
@@ -221,13 +132,66 @@ pub fn unregister_context_menu() -> R {
     }
     delete_tree(ARCHIVE_MENU);
     delete_tree(COMPRESS_MENU);
+}
+
+/// One "OK Zip" submenu in the Explorer context menu (per user), through
+/// context-menu-rs: archives get 打开 / 解压到当前文件夹 / 解压到同名文件夹 / 测试 /
+/// 压缩为 ZIP / 压缩为 7Z, other files and folders the two compress commands.
+/// Without OK Zip's sparse package: classic verbs (Windows 10, Windows 11
+/// "显示更多选项"). With it registered (installer, Windows 11): no verbs; the
+/// package's IExplorerCommand DLL serves the top-level menu and the classic
+/// one from the definition written here.
+pub fn register_context_menu() -> R {
+    remove_own_verbs();
+    okzip_shellmenu::context_menu::install(&shell_menu()).map_err(|e| e.to_string())?;
     notify();
     Ok(())
 }
 
-/// Whether our context-menu entries are currently registered for this user.
+pub fn unregister_context_menu() -> R {
+    remove_own_verbs();
+    okzip_shellmenu::context_menu::uninstall(okzip_shellmenu::MENU_ID).map_err(|e| e.to_string())?;
+    notify();
+    Ok(())
+}
+
+fn definition_file() -> Option<std::path::PathBuf> {
+    let home = okzip_shellmenu::context_menu::windows::data_home().ok()?;
+    Some(okzip_shellmenu::context_menu::windows::definition_path(okzip_shellmenu::MENU_ID, &home))
+}
+
+/// Whether our context menu is installed for this user.
 pub fn context_menu_registered() -> bool {
-    key_exists(&format!(r"Directory\shell\{MENU_VERB}")) || key_exists(&format!(r"SystemFileAssociations\.zip\shell\{MENU_VERB}"))
+    definition_file().is_some_and(|p| p.is_file()) || key_exists(&format!(r"Directory\shell\{MENU_VERB}"))
+}
+
+/// The sparse package serving the Windows 11 menu, when registered.
+pub fn serving_package() -> Option<String> {
+    okzip_shellmenu::context_menu::windows::serving_package(okzip_shellmenu::MENU_ID)
+}
+
+/// At start-up: when the menu is installed but out of date (exe moved,
+/// language changed, the package came or went), install it again. Cheap.
+pub fn refresh_context_menu_if_installed() {
+    if !context_menu_registered() {
+        return;
+    }
+    let menu = shell_menu();
+    if okzip_shellmenu::context_menu::is_current(&menu).ok() != Some(true) {
+        let _ = register_context_menu();
+    }
+}
+
+/// One line for the settings page / `--shell-status`.
+pub fn shell_status() -> String {
+    let def = definition_file().map(|p| p.display().to_string()).unwrap_or_default();
+    format!(
+        "registered={} package={} definition={} clsid={}",
+        context_menu_registered(),
+        serving_package().unwrap_or_else(|| "-".into()),
+        def,
+        okzip_shellmenu::clsid()
+    )
 }
 
 /// Register the OKZip.Archive ProgID and offer it for every archive type

@@ -15,6 +15,7 @@
 //!                                     (see `gather`) so a multi-selection makes one archive.
 //! okzip.exe --register-shell | --unregister-shell | --associate | --unassociate
 //!                                     silent Explorer integration (used by the installer)
+//! okzip.exe --shell-status FILE       write the context-menu state (CI / diagnostics)
 //! ```
 
 mod band;
@@ -80,11 +81,22 @@ pub fn run() {
             };
             i32::from(r.is_err())
         }
+        Some("--shell-status") => {
+            let line = registry::shell_status();
+            match args.get(1) {
+                Some(f) => i32::from(std::fs::write(f, line).is_err()),
+                None => 2,
+            }
+        }
         Some(path) => {
+            registry::refresh_context_menu_if_installed();
             let p = PathBuf::from(path);
             message_loop(Some(p))
         }
-        None => message_loop(None),
+        None => {
+            registry::refresh_context_menu_if_installed();
+            message_loop(None)
+        }
     };
     std::process::exit(code);
 }

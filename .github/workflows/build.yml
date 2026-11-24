@@ -24,6 +24,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Test okzip-core
         run: cargo test -p okzip-core --locked
+      - name: Test okzip-shellmenu (menu definition, sparse manifest)
+        run: cargo test -p okzip-shellmenu --locked
       - name: Build CLI
         run: cargo build -p okzip-cli --release --locked
       - name: Install MinGW-w64
@@ -43,19 +45,25 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Build (release)
-        run: cargo build --release --locked --target x86_64-pc-windows-msvc -p okzip -p okzip-cli
+        run: cargo build --release --locked --target x86_64-pc-windows-msvc -p okzip -p okzip-cli -p okzip-shellmenu
 
       - name: Test okzip-core on Windows
         run: cargo test --release --locked -p okzip-core
 
       - name: Stage files
         shell: pwsh
+        env:
+          OKZIP_SIGN_PFX: ${{ secrets.OKZIP_SIGN_PFX }}
+          OKZIP_SIGN_PASSWORD: ${{ secrets.OKZIP_SIGN_PASSWORD }}
+          OKZIP_SIGN_TRUSTED: ${{ secrets.OKZIP_SIGN_TRUSTED }}
         run: |
           $out = "dist/okzip"
           New-Item -ItemType Directory -Force -Path $out | Out-Null
           Copy-Item target/x86_64-pc-windows-msvc/release/okzip.exe $out/
           Copy-Item target/x86_64-pc-windows-msvc/release/okzip-cli.exe $out/
           Copy-Item README.md, LICENSE $out/
+          # Windows 11 top-level menu: context-menu-rs DLL + signed sparse package
+          ./.github/scripts/package-sparse.ps1 -Stage $out -Version "0.3.${{ github.run_number }}.0" -ShellMenuExe target/x86_64-pc-windows-msvc/release/okzip-shellmenu.exe
           Compress-Archive -Path "$out/*" -DestinationPath "dist/okzip-portable-x64.zip" -Force
 
       - name: Install Inno Setup
@@ -69,7 +77,7 @@ jobs:
         shell: pwsh
         run: |
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
-          & $iscc "/DAppVersion=0.2.${{ github.run_number }}" "/DSourceDir=..\dist\okzip" installer\okzip.iss
+          & $iscc "/DAppVersion=0.3.${{ github.run_number }}" "/DSourceDir=..\dist\okzip" installer\okzip.iss
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - uses: actions/upload-artifact@v4
@@ -90,7 +98,10 @@ jobs:
             Automated build of `${{ github.sha }}` (${{ github.ref_name }}).
 
             - `okzip-portable-x64.zip` — portable: unzip and run `okzip.exe`
-            - `okzip-setup-x64.exe` — installer (English / 简体中文; per-user; optional Explorer "OK Zip" submenu and file associations)
+            - `okzip-setup-x64.exe` — installer (English / 简体中文; per-user; optional Explorer "OK Zip" submenu and file associations).
+              On Windows 11 it also registers OK Zip's sparse package so "OK Zip" is in the top-level right-click menu.
+              CI builds sign the package with a self-signed "CN=OK Zip Dev" certificate; the installer imports it into
+              Local Machine › Trusted People (one UAC prompt). See README "Windows 11 右键菜单".
           files: |
             dist/okzip-portable-x64.zip
             dist/okzip-setup-x64.exe

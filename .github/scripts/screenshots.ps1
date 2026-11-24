@@ -1,4 +1,4 @@
-# GUI smoke test: launch okzip.exe on a sample archive, open the main dialogs
+﻿# GUI smoke test: launch okzip.exe on a sample archive, open the main dialogs
 # by posting WM_COMMAND with the menu IDs from app/src/win/ids.rs, and save
 # PNG screenshots (screen copy + PrintWindow of the HWND) to $Out.
 # Also: every settings tab, the overwrite-conflict dialog (extracting the
@@ -332,8 +332,9 @@ try {
   # 5) Explorer context menu: register, inspect, unregister
   $p = Start-Process -FilePath $exe -ArgumentList "--register-shell" -PassThru -Wait
   if ($p.ExitCode -ne 0) { throw "SMOKE TEST FAILED: --register-shell exited with $($p.ExitCode)" }
-  foreach ($k in @("HKCU:\Software\Classes\Directory\shell\OKZip", "HKCU:\Software\Classes\*\shell\OKZip",
-                   "HKCU:\Software\Classes\SystemFileAssociations\.zip\shell\OKZip", "HKCU:\Software\Classes\OKZip.ArchiveMenu\shell\02ExtractHere\command")) {
+  # classic verbs written by context-menu-rs (menu id "ok-zip"; submenu verb + items under its own shell key)
+  foreach ($k in @("HKCU:\Software\Classes\Directory\shell\ok-zip", "HKCU:\Software\Classes\*\shell\ok-zip",
+                   "HKCU:\Software\Classes\SystemFileAssociations\.zip\shell\ok-zip")) {
     if (-not (Test-Path -LiteralPath $k)) { throw "SMOKE TEST FAILED: missing registry key $k" }
     $v = Get-ItemProperty -LiteralPath $k
     Write-Host "$k : $(($v.PSObject.Properties | Where-Object { $_.Name -notlike 'PS*' } | ForEach-Object { "$($_.Name)=$($_.Value)" }) -join ' | ')"
@@ -349,7 +350,7 @@ try {
     } catch { Write-Warning "context menu dump failed for ${f}: $($_.Exception.Message)" }
   }
   $p = Start-Process -FilePath $exe -ArgumentList "--unregister-shell" -PassThru -Wait
-  if (Test-Path -LiteralPath "HKCU:\Software\Classes\Directory\shell\OKZip") { throw "SMOKE TEST FAILED: --unregister-shell left keys behind" }
+  if (Test-Path -LiteralPath "HKCU:\Software\Classes\Directory\shell\ok-zip") { throw "SMOKE TEST FAILED: --unregister-shell left keys behind" }
 
   # 6) multi-selection compress: one process per file (as Explorer does) -> one archive
   $gdir = Join-Path $work "gather-test"

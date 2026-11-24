@@ -209,8 +209,9 @@ strings! {
     SCGroup => "新建压缩文件的默认设置", "Defaults for new archives";
     SCNote => "“新建压缩文件”对话框和右键菜单“压缩为 ZIP / 7Z”都使用这里的压缩级别。", "Used by the New archive dialog and by the Explorer \"Compress to ZIP / 7Z\" commands.";
     SShellGroup => "资源管理器右键菜单", "Explorer context menu";
-    SShellText => "在右键菜单中添加“OK Zip”子菜单：打开、解压到当前文件夹、解压到同名文件夹、测试、压缩为 ZIP、压缩为 7Z。仅对当前用户生效，无需管理员权限。", "Adds an \"OK Zip\" submenu: Open, Extract here, Extract to folder, Test, Compress to ZIP, Compress to 7Z. Current user only; no admin rights needed.";
-    SShellOn => "当前状态：已注册", "Status: registered";
+    SShellText => "在右键菜单中添加“OK Zip”子菜单：打开、解压到当前文件夹、解压到同名文件夹、测试、压缩为 ZIP、压缩为 7Z。仅当前用户。Win11 一级菜单需安装程序注册稀疏包。", "Adds an \"OK Zip\" submenu: Open, Extract here, Extract to folder, Test, Compress to ZIP, Compress to 7Z. Current user only; the Windows 11 top-level menu needs the installer's package.";
+    SShellOn => "当前状态：已注册（经典菜单）", "Status: registered (classic menu)";
+    SShellOnPkg => "当前状态：已注册（Win11 一级菜单）", "Status: registered (Windows 11 top level)";
     SShellOff => "当前状态：未注册", "Status: not registered";
     SReg => "注册右键菜单", "Register context menu";
     SUnreg => "取消注册", "Unregister";

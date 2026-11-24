@@ -20,11 +20,22 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Build (release)
-        run: cargo build --release --locked --target x86_64-pc-windows-msvc -p okzip -p okzip-cli
+        run: cargo build --release --locked --target x86_64-pc-windows-msvc -p okzip -p okzip-cli -p okzip-shellmenu
 
       - name: Smoke test + capture screenshots
         shell: pwsh
         run: ./.github/scripts/screenshots.ps1 -Bin target/x86_64-pc-windows-msvc/release -Out shots
+
+      - name: Windows 11 menu (sparse package + IExplorerCommand DLL)
+        if: always()
+        shell: pwsh
+        run: |
+          $bin = "target/x86_64-pc-windows-msvc/release"
+          $stage = Join-Path $env:RUNNER_TEMP "okzip-app"
+          New-Item -ItemType Directory -Force $stage | Out-Null
+          Copy-Item "$bin/okzip.exe", "$bin/okzip-cli.exe", "$bin/okzip-shellmenu.exe" $stage
+          ./.github/scripts/package-sparse.ps1 -Stage $stage -Version "0.3.${{ github.run_number }}.0" -ShellMenuExe "$bin/okzip-shellmenu.exe"
+          ./.github/scripts/test-win11-menu.ps1 -Stage $stage -Out shots
 
       - uses: actions/upload-artifact@v4
         if: always()

@@ -18,6 +18,7 @@ rar = ["okzip-core/rar"]
 okzip-core = { path = "../crates/okzip-core", default-features = false }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+okzip-shellmenu = { path = "../crates/okzip-shellmenu" }
 
 [target.'cfg(windows)'.dependencies.windows-sys]
 version = "0.61"
