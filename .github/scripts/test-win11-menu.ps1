@@ -62,7 +62,10 @@ public static class XCmd {
     return (IExplorerCommandX)Activator.CreateInstance(t);
   }
   // "title [state]" for the entry and each sub-command; state 0 = ECS_ENABLED, 2 = ECS_HIDDEN.
-  public static List<string> Describe(IExplorerCommandX root, IntPtr arr) {
+  // COM objects stay inside C#: PowerShell cannot pass a __ComObject back as IExplorerCommandX.
+  public static List<string> Describe(string clsid, string path) { return Describe(Create(clsid), Array(path)); }
+  public static int InvokeSub(string clsid, string path, string title) { return InvokeSub(Create(clsid), Array(path), title); }
+  static List<string> Describe(IExplorerCommandX root, IntPtr arr) {
     var o = new List<string>();
     IntPtr p; uint st, fl;
     int hr = root.GetTitle(arr, out p); string t = Str(hr, p);
@@ -80,7 +83,7 @@ public static class XCmd {
     }
     return o;
   }
-  public static int InvokeSub(IExplorerCommandX root, IntPtr arr, string title) {
+  static int InvokeSub(IExplorerCommandX root, IntPtr arr, string title) {
     IEnumExplorerCommandX e; IntPtr p;
     if (root.EnumSubCommands(out e) != 0 || e == null) return -1;
     IExplorerCommandX c; uint got;
@@ -184,16 +187,13 @@ try {
   Note "PackagedCom ClassIndex entry: $([bool]$ci)"
 
   # 3) COM, as Explorer calls it
-  $cmd = [XCmd]::Create($clsid)
   foreach ($p in @($zip, $txt, $dir)) {
-    $arr = [XCmd]::Array($p)
-    $lines = [XCmd]::Describe($cmd, $arr)
+    $lines = [XCmd]::Describe($clsid, $p)
     Note "IExplorerCommand for $(Split-Path $p -Leaf):`n$($lines -join "`n")"
   }
-  $arr = [XCmd]::Array($zip)
   $zh = (Get-Content -Raw $defn) -match "解压到当前文件夹"
   $label = if ($zh) { "解压到当前文件夹" } else { "Extract here" }
-  $hr = [XCmd]::InvokeSub($cmd, $arr, $label)
+  $hr = [XCmd]::InvokeSub($clsid, $zip, $label)
   Note "Invoke '$label' on 示例.zip -> hr $hr"
   $deadline = (Get-Date).AddSeconds(30)
   while (-not (Test-Path (Join-Path $work "说明.txt")) -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 300 }
